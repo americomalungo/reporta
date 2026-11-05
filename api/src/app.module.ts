@@ -1,15 +1,22 @@
 import { Module } from '@nestjs/common';
 import { createObserveModule } from '@nestjs/observe';
 import { AppController } from './app.controller';
+import { EnvModule } from './config/env/env.module';
+import { EnvService } from './config/env/env.service';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 @Module({
   imports: [
-    ObserveModule.forRoot({
-      appKey: process.env.OBSERVE_APP_KEY ?? 'YOUR_APP_KEY',
-      appSecret: process.env.OBSERVE_APP_SECRET ?? 'YOUR_APP_SECRET',
-      serviceId: 'api',
+    EnvModule,
+    ObserveModule.forRootAsync({
+      imports: [EnvModule],
+      inject: [EnvService],
+      useFactory: (env: EnvService) => ({
+        appKey: env.observeAppKey,
+        appSecret: env.observeAppSecret,
+        serviceId: 'api',
+      }),
     }),
   ],
   controllers: [AppController],
