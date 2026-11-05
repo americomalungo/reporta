@@ -1,0 +1,508 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [pg_trgm, postgis]
+}
+
+// ------------------------------------------------------------
+// ENUMS
+// ------------------------------------------------------------
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum IncidentStatus {
+  ACTIVE
+  EXPIRED
+  UNDER_REVIEW // ADICIONADO: Para moderação automática por denúncias
+  REMOVED
+  DELETED
+}
+
+enum VoteType {
+  CONFIRM
+  DISCONFIRM
+}
+
+enum NotificationType {
+  INCIDENT_CONFIRMED
+  INCIDENT_DISCONFIRMED
+  INCIDENT_REMOVED
+  RISK_ALERT
+  POSTING_RESTRICTED
+  ACCOUNT_SUSPENDED
+  ACCOUNT_BANNED
+  ACCOUNT_REACTIVATED
+  ADMIN_MESSAGE
+  SYSTEM
+}
+
+enum PushPlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+enum ModerationAction {
+  BAN_USER
+  SUSPEND_USER
+  UNBAN_USER
+  UNSUSPEND_USER
+  PROMOTE_ADMIN
+  DEMOTE_ADMIN
+  REMOVE_INCIDENT
+  RESTORE_INCIDENT
+  EDIT_CATEGORY
+  RESTRICT_POSTING
+  LIFT_POSTING_RESTRICTION
+  DISMISS_REPORT
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+// ADICIONADO: Tipos de ações que geram/removem pontuação
+enum ReputationAction {
+  INCIDENT_CREATED
+  INCIDENT_CONFIRMED_BY_OTHERS
+  USEFUL_COMMENT
+  INCIDENT_REMOVED_PENALTY
+  FALSE_REPORT_PENALTY
+}
+
+// ------------------------------------------------------------
+// USUÁRIOS
+// ------------------------------------------------------------
+
+model User {
+  id          String  @id @default(cuid())
+  firebaseUid String  @unique
+  email       String  @unique
+  name        String
+  avatarUrl   String?
+  phone       String?
+
+  role   UserRole      @default(USER)
+  status AccountStatus @default(ACTIVE)
+
+  // Gamificação / Reputação
+  reputationScore Int @default(0)
+
+  // Suspensão / banimento
+  statusReason    String?
+  statusChangedAt DateTime?
+  suspendedUntil  DateTime?
+  statusChangedBy String?
+
+  // Bloqueio de postagem (1 mês)
+  postingBlockedUntil DateTime?
+
+  // Posts removidos por excesso de desconfirmações (3 => conta banida)
+  removedPostsCount Int @default(0)
+
+  // Última localização conhecida (alertas de proximidade)
+  lastLatitude   Float?
+  lastLongitude  Float?
+  lastLocationAt DateTime?
+
+  // Preferências
+  alertsEnabled Boolean @default(true)
+  alertRadiusM  Int     @default(1000)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
+
+  incidents        Incident[]
+  votes            Vote[]
+  comments         Comment[]
+  notifications    Notification[]
+  pushTokens       PushToken[]
+  reports          Report[]            @relation("ReportAuthor")
+  moderationsDone  ModerationLog[]     @relation("ModerationAdmin")
+  moderationsTaken ModerationLog[]     @relation("ModerationTarget")
+  alertDeliveries  AlertDelivery[]
+  statusHistory    UserStatusHistory[]
+  savedIncidents   SavedIncident[]
+  reputationLogs   ReputationLog[]
+  interestZones    UserInterestZone[]
+
+  @@index([role])
+  @@index([status])
+  @@index([reputationScore])
+  @@index([lastLatitude, lastLongitude])
+  @@map("users")
+}
+
+model UserStatusHistory {
+  id         String        @id @default(cuid())
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromStatus AccountStatus
+  toStatus   AccountStatus
+  reason     String?
+  until      DateTime?
+  changedBy  String? // id do admin, ou null se automático
+  createdAt  DateTime      @default(now())
+
+  @@index([userId, createdAt])
+  @@map("user_status_history")
+}
+
+// ADICIONADO: Histórico de pontos de reputação
+model ReputationLog {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  points    Int
+  action    ReputationAction
+  reason    String?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@map("reputation_logs")
+}
+
+// ADICIONADO: Zonas de Interesse Personalizadas (Polígonos PostGIS)
+model UserInterestZone {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String // ex: "Bairro do Trabalho", "Casa da Mãe"
+
+  // Polígono espacial representando a zona delimitada
+  area Unsupported("geography(Polygon, 4326)")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("user_interest_zones")
+}
+
+// ------------------------------------------------------------
+// TOKENS PUSH (FCM) - notificações com app fechado
+// ------------------------------------------------------------
+
+model PushToken {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String       @unique
+  platform  PushPlatform
+  deviceId  String?
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([userId])
+  @@map("push_tokens")
+}
+
+// ------------------------------------------------------------
+// CATEGORIAS
+// ------------------------------------------------------------
+
+model Category {
+  id          String  @id @default(cuid())
+  slug        String  @unique // "fogo", "iluminacao", "estradas", "lixo"
+  name        String
+  description String?
+  icon        String?
+  color       String?
+
+  isRisk Boolean @default(false) // true => dispara alerta por proximidade
+
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  incidents Incident[]
+
+  @@index([isRisk])
+  @@map("categories")
+}
+
+// ------------------------------------------------------------
+// INCIDENTES
+// ------------------------------------------------------------
+
+model Incident {
+  id         String   @id @default(cuid())
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  title       String
+  description String
+
+  latitude  Float
+  longitude Float
+
+  // Coluna espacial do PostGIS para consultas de proximidade
+  location Unsupported("geography(Point, 4326)")?
+
+  address String?
+
+  // Cópia da classificação da categoria no momento do post
+  isRisk Boolean @default(false)
+
+  status IncidentStatus @default(ACTIVE)
+
+  // createdAt + 48h (definido pela aplicação na criação)
+  expiresAt DateTime
+
+  // Contadores desnormalizados
+  confirmCount        Int @default(0)
+  disconfirmCount     Int @default(0)
+  commentCount        Int @default(0)
+  pendingReportsCount Int @default(0) // ADICIONADO: Para controle de moderação automática
+
+  // Remoção
+  removedAt     DateTime?
+  removedReason String?
+  removedBy     String? // admin id, ou null se automático
+
+  // Alerta de risco
+  alertDispatchedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  media           IncidentMedia[]
+  votes           Vote[]
+  comments        Comment[]
+  notifications   Notification[]
+  reports         Report[]
+  alertDeliveries AlertDelivery[]
+  savedBy         SavedIncident[]
+  history         IncidentHistory[]
+
+  @@index([status, expiresAt])
+  @@index([categoryId, status, createdAt])
+  @@index([authorId])
+  @@index([isRisk, status])
+  @@index([latitude, longitude])
+  @@index([pendingReportsCount])
+  @@index([createdAt])
+  // Busca por texto (LIKE/ILIKE '%termo%') via pg_trgm
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "incidents_title_trgm_idx")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "incidents_description_trgm_idx")
+  @@map("incidents")
+}
+
+// ADICIONADO: Histórico de Alterações de Incidentes
+model IncidentHistory {
+  id          String   @id @default(cuid())
+  incidentId  String
+  incident    Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  editedAt    DateTime @default(now())
+
+  @@index([incidentId, editedAt])
+  @@map("incident_history")
+}
+
+// ADICIONADO: Favoritos / Incidentes Guardados
+model SavedIncident {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, incidentId])
+  @@index([userId])
+  @@map("saved_incidents")
+}
+
+// Mídia no Supabase Storage
+model IncidentMedia {
+  id         String    @id @default(cuid())
+  incidentId String
+  incident   Incident  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  type       MediaType @default(IMAGE)
+  bucket     String    @default("incident-media")
+  path       String
+  url        String
+  mimeType   String?
+  sizeBytes  Int?
+  width      Int?
+  height     Int?
+  sortOrder  Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  @@index([incidentId])
+  @@map("incident_media")
+}
+
+// ------------------------------------------------------------
+// VOTOS (confirmar / desconfirmar)
+// ------------------------------------------------------------
+
+model Vote {
+  id         String   @id @default(cuid())
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       VoteType
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([incidentId, userId])
+  @@index([incidentId, type])
+  @@index([userId])
+  @@map("votes")
+}
+
+// ------------------------------------------------------------
+// COMENTÁRIOS
+// ------------------------------------------------------------
+
+model Comment {
+  id         String   @id @default(cuid())
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content    String
+  isHidden   Boolean  @default(false)
+
+  // ADICIONADO: Auto-relação para suporte a comentários aninhados (respostas)
+  parentId String?
+  parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  Comment[] @relation("CommentReplies")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([incidentId, createdAt])
+  @@index([parentId])
+  @@index([userId])
+  @@map("comments")
+}
+
+// ------------------------------------------------------------
+// DENÚNCIAS
+// ------------------------------------------------------------
+
+model Report {
+  id         String       @id @default(cuid())
+  reporterId String
+  reporter   User         @relation("ReportAuthor", fields: [reporterId], references: [id], onDelete: Cascade)
+  incidentId String
+  incident   Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  reason     String
+  status     ReportStatus @default(PENDING)
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  @@index([status, createdAt])
+  @@index([incidentId])
+  @@map("reports")
+}
+
+// ------------------------------------------------------------
+// NOTIFICAÇÕES (dentro do app + push)
+// ------------------------------------------------------------
+
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       NotificationType
+  title      String
+  body       String
+  incidentId String?
+  incident   Incident?        @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+
+  data Json? // dados extras para deep link
+
+  isRead Boolean   @default(false)
+  readAt DateTime?
+
+  pushSent   Boolean   @default(false)
+  pushSentAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+  @@index([incidentId])
+  @@map("notifications")
+}
+
+// Evita enviar o mesmo alerta de risco duas vezes ao mesmo usuário
+model AlertDelivery {
+  id          String   @id @default(cuid())
+  incidentId  String
+  incident    Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  distanceM   Float?
+  deliveredAt DateTime @default(now())
+
+  @@unique([incidentId, userId])
+  @@index([userId])
+  @@map("alert_deliveries")
+}
+
+// ------------------------------------------------------------
+// ADMINISTRAÇÃO - auditoria
+// ------------------------------------------------------------
+
+model ModerationLog {
+  id           String           @id @default(cuid())
+  action       ModerationAction
+  adminId      String? // null = ação automática do sistema
+  admin        User?            @relation("ModerationAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  targetUserId String?
+  targetUser   User?            @relation("ModerationTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  incidentId   String?
+  reason       String?
+  metadata     Json?
+  createdAt    DateTime         @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([targetUserId])
+  @@index([action])
+  @@map("moderation_logs")
+}
+
+// ------------------------------------------------------------
+// CONFIGURAÇÕES DO SISTEMA (ajustáveis por admins)
+// ------------------------------------------------------------
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
