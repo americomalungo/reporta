@@ -1,6 +1,6 @@
-import { ConfigService } from "@nestjs/config";
-import { Environment, EnvironmentVariables } from "./env.validation";
-import { Injectable } from "@nestjs/common";
+import { ConfigService } from '@nestjs/config';
+import { Environment, EnvironmentVariables } from './env.validation';
+import { Injectable } from '@nestjs/common';
 
 // env.service.ts
 @Injectable()

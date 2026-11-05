@@ -14,7 +14,6 @@ async function bootstrap() {
   await app.listen(port);
 
   console.log(`Reporta API is runing...`);
-  
 }
 void bootstrap().catch((err) => {
   console.error('Error starting the application:', err);
