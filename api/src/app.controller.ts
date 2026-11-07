@@ -1,10 +1,11 @@
 import { Controller, Get } from '@nestjs/common';
-import { PrismaService } from './config/database/prisma.service';
+import { Public } from './common/decorators/public.decorator';
+
 @Controller()
 export class AppController {
-  constructor(private prisma: PrismaService) {}
-  @Get()
-  getHello(): string {
+  @Get('health')
+  @Public()
+  healthCheck(): string {
     return 'Reporta API is running...!';
   }
 }

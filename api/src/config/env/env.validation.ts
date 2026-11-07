@@ -37,6 +37,18 @@ export class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   OBSERVE_APP_SECRET!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  FIREBASE_PROJECT_ID!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  FIREBASE_PRIVATE_KEY!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  FIREBASE_CLIENT_EMAIL!: string;
 }
 
 export function validate(config: Record<string, unknown>) {

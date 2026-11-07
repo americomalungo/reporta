@@ -16,12 +16,27 @@ export class EnvService {
     return this.config.getOrThrow('DATABASE_URL', { infer: true });
   }
 
-  get observeAppKey() {
-    return this.config.getOrThrow('OBSERVE_APP_KEY', { infer: true });
+  get observe() {
+    return {
+      appKey: this.config.getOrThrow('OBSERVE_APP_KEY', { infer: true }),
+      appSecret: this.config.getOrThrow('OBSERVE_APP_SECRET', {
+        infer: true,
+      }),
+    };
   }
 
-  get observeAppSecret() {
-    return this.config.getOrThrow('OBSERVE_APP_SECRET', { infer: true });
+  get firebase() {
+    return {
+      projectId: this.config.getOrThrow('FIREBASE_PROJECT_ID', {
+        infer: true,
+      }),
+      privateKey: this.config.getOrThrow('FIREBASE_PRIVATE_KEY', {
+        infer: true,
+      }),
+      clientEmail: this.config.getOrThrow('FIREBASE_CLIENT_EMAIL', {
+        infer: true,
+      }),
+    };
   }
 
   get isProduction() {
