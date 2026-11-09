@@ -1,8 +1,7 @@
+import { FIREBASE_AUTH } from '@/src/infrastructure/firebase/firebase.constants';
+import { UserRole } from '@/src/common/types/users.types';
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { Auth, DecodedIdToken } from 'firebase-admin/auth';
-import { FIREBASE_AUTH } from '../../config/firebase/firebase.constants';
-
-import { UserRole } from '../../../generated/prisma';
 
 @Injectable()
 export class AuthService implements OnModuleInit {

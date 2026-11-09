@@ -1027,6 +1027,11 @@
     path-to-regexp "8.4.2"
     tslib "2.8.1"
 
+"@nestjs/mapped-types@^12.0.1":
+  version "12.0.1"
+  resolved "https://registry.yarnpkg.com/@nestjs/mapped-types/-/mapped-types-12.0.1.tgz#847f32994bed00790c1700289e79b48552bb8b08"
+  integrity sha512-AHkgYt6UgJ5XBE3v4zGUUdfPD7kCGBzOa/uHfOYkkRTfojYWLRCCdAJiyWNpIFHCySJH/MR2F/z4MrMo5YheHg==
+
 "@nestjs/mau@^0.2.6":
   version "0.2.9"
   resolved "https://registry.yarnpkg.com/@nestjs/mau/-/mau-0.2.9.tgz#886ac8dc1e266951d9c419e3c4fb2133a9f7fc78"
