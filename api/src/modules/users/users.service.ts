@@ -62,7 +62,6 @@ export class UsersService {
         id: user.id,
         name: user.name,
         email: user.email,
-        firebaseUid: user.firebaseUid,
         phone: user.phone,
         alertsEnabled: user.alertsEnabled,
         avatarUrl: user?.avatarUrl,
@@ -95,11 +94,12 @@ export class UsersService {
     dto: UpdateUserDto,
     currentUser: DecodedIdToken,
   ) {
-    const user = await this.repository.update(where, dto);
-
-    if (user.firebaseUid !== currentUser.uid) {
+    if (
+      (await this.repository.findUnique(where))?.firebaseUid !== currentUser.uid
+    ) {
       throw new ForbiddenException('Não autorizado');
     }
+    const user = await this.repository.update(where, dto);
 
     if (!user || user.status !== AccountStatus.ACTIVE) {
       throw new NotFoundException('User not found');
@@ -109,7 +109,6 @@ export class UsersService {
       id: user.id,
       name: user.name,
       email: user.email,
-      firebaseUid: user.firebaseUid,
       phone: user.phone,
       alertsEnabled: user.alertsEnabled,
       avatarUrl: user?.avatarUrl,
@@ -146,6 +145,8 @@ export class UsersService {
       avatarUrl: undefined,
       phone: undefined,
       alertsEnabled: false,
+      lastLongitude: undefined,
+      lastLatitude: undefined,
       alertRadiusM: undefined,
       status: AccountStatus.DELETED,
       statusChangedAt: new Date(),
