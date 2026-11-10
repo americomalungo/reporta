@@ -1,9 +1,9 @@
 import { Controller, Get, Post, Body, Patch, Param } from '@nestjs/common';
 import { Roles } from '@/src/common/decorators/roles.decorator';
 import { UserRole } from '@/src/common/enums/users.enums';
-import { CreateCategoryDto } from './dto/create-category.dto';
-import { CategoryService } from './category.service';
-import { UpdateCategoryDto } from './dto/update-category.dto';
+import { CreateCategoryDto } from '../dto/create-category.dto';
+import { CategoryService } from '../services/category.service';
+import { UpdateCategoryDto } from '../dto/update-category.dto';
 import { CurrentUser } from '@/src/common/decorators/current-user.decorator';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 

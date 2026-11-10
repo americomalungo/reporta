@@ -37,38 +37,4 @@ export class IncidentsRepository {
       data,
     });
   }
-
-  async createCategory(data: Prisma.CategoryCreateInput): Promise<Category> {
-    return await this.prismaService.category.create({
-      data,
-    });
-  }
-
-  async findManyCategory(
-    where?: Prisma.CategoryWhereInput,
-  ): Promise<Category[]> {
-    return await this.prismaService.category.findMany({
-      where,
-    });
-  }
-
-  async findUniqueCategory(
-    where: Prisma.CategoryWhereUniqueInput,
-  ): Promise<Category | null> {
-    const category = await this.prismaService.category.findUnique({
-      where,
-    });
-
-    return category;
-  }
-
-  async updateCategory(
-    where: Prisma.CategoryWhereUniqueInput,
-    data: Prisma.CategoryUpdateInput,
-  ) {
-    return await this.prismaService.category.update({
-      where,
-      data,
-    });
-  }
 }

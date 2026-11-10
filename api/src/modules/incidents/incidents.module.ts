@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
-import { IncidentsService } from './incidents.service';
-import { IncidentsController } from './incidents.controller';
-import { CategorysController } from './category.controller';
-import { CategoryService } from './category.service';
-import { IncidentsRepository } from '@/src/infrastructure/repositories/incidents.repository';
+import { IncidentsService } from './services/incidents.service';
+import { IncidentsRepository } from '@/src/infrastructure/repositories/category.repository';
+import { CategorysController } from './controllers/category.controller';
+import { CategoryService } from './services/category.service';
+import { IncidentsController } from './controllers/incidents.controller';
 
 @Module({
   controllers: [IncidentsController, CategorysController],

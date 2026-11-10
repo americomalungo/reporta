@@ -1,14 +1,10 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common';
-import { CreateCategoryDto } from './dto/create-category.dto';
-import { UpdateCategoryDto } from './dto/update-category.dto';
-import { IncidentsRepository } from '@/src/infrastructure/repositories/incidents.repository';
-import { ReturnCategoryDto } from './dto/return-category.dto';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { IncidentsRepository } from '@/src/infrastructure/repositories/category.repository';
 import { DecodedIdToken } from 'firebase-admin/auth';
 import { UserRole } from '@/src/common/enums/users.enums';
+import { ReturnCategoryDto } from '../dto/return-category.dto';
+import { CreateCategoryDto } from '../dto/create-category.dto';
+import { UpdateCategoryDto } from '../dto/update-category.dto';
 
 @Injectable()
 export class CategoryService {
@@ -20,22 +16,16 @@ export class CategoryService {
    * @returns {Promise<ReturnCategoryDto>}
    */
   async create(dto: CreateCategoryDto): Promise<ReturnCategoryDto> {
-    const slug = this.generateSlug(dto.name);
-
-    const data = {
-      ...dto,
-      slug,
-    };
-
-    const category = await this.repository.createCategory(data);
-
-    if (!category) {
-      throw new InternalServerErrorException(
-        'Não foi possível criar categoria',
-      );
+    try {
+      const slug = this.generateSlug(dto.name);
+      const data = {
+        ...dto,
+        slug,
+      };
+      return await this.repository.create(data);
+    } catch (error) {
+      throw error;
     }
-
-    return category;
   }
 
   /**
@@ -48,9 +38,21 @@ export class CategoryService {
   async findAll(user: DecodedIdToken): Promise<ReturnCategoryDto[]> {
     const where = user.role === UserRole.ADMIN ? {} : { isActive: true };
 
-    const categories = await this.repository.findManyCategory(where);
+    const categories = await this.repository.findMany(where);
 
-    return categories.map(() => new ReturnCategoryDto());
+    if (!categories) {
+      throw new NotFoundException('Categorias não encontradas');
+    }
+    return categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      description: category.description,
+      icon: category.icon,
+      color: category.color,
+      isRisk: category.isRisk,
+      slug: category.slug,
+      isActive: category.isActive,
+    }));
   }
 
   /**
@@ -66,24 +68,32 @@ export class CategoryService {
   ): Promise<ReturnCategoryDto> {
     const where =
       currentUser.role === UserRole.ADMIN ? { id } : { id, isActive: true };
-
-    const category = await this.repository.findUniqueCategory(where);
-
+    const category = await this.repository.findUnique(where);
     if (!category) {
       throw new NotFoundException('Categoria não encontrada');
     }
-
-    return category;
+    return {
+      id: category?.id,
+      name: category?.name,
+      description: category?.description,
+      icon: category?.icon,
+      color: category?.color,
+      isRisk: category?.isRisk,
+      slug: category?.slug,
+      isActive: category?.isActive,
+    };
   }
 
   async update(where: { id: string }, updateCategoryDto: UpdateCategoryDto) {
-    const category = this.repository.updateCategory(where, updateCategoryDto);
-
-    if (!category) {
-      throw new NotFoundException('Categoria não encontrada');
+    try {
+      const category = await this.repository.update(
+        where,
+        updateCategoryDto,
+      );
+      return category;
+    } catch (error) {
+      throw error;
     }
-
-    return category;
   }
 
   private generateSlug(name: string): string {

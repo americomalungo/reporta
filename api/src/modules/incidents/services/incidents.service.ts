@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { UpdateIncidentDto } from './dto/update-incident.dto';
-import { CreateIncidentDto } from './dto/create-incident.dto';
+import { UpdateIncidentDto } from '../dto/update-incident.dto';
+import { CreateIncidentDto } from '../dto/create-incident.dto';
 
 @Injectable()
 export class IncidentsService {

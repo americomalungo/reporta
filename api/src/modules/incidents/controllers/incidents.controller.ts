@@ -7,9 +7,9 @@ import {
   Param,
   Delete,
 } from '@nestjs/common';
-import { IncidentsService } from './incidents.service';
-import { CreateIncidentDto } from './dto/create-incident.dto';
-import { UpdateIncidentDto } from './dto/update-incident.dto';
+import { IncidentsService } from '../services/incidents.service';
+import { CreateIncidentDto } from '../dto/create-incident.dto';
+import { UpdateIncidentDto } from '../dto/update-incident.dto';
 
 @Controller('incidents')
 export class IncidentsController {

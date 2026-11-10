@@ -16,6 +16,6 @@ export class AuthService implements OnModuleInit {
   }
 
   verifyToken(token: string): Promise<DecodedIdToken> {
-    return this.auth.verifyIdToken(token, false);
+    return this.auth.verifyIdToken(token, true);
   }
 }

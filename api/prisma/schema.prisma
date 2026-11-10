@@ -116,8 +116,7 @@ model User {
   removedPostsCount Int @default(0)
 
   // Última localização conhecida (alertas de proximidade)
-  lastLatitude   Float?
-  lastLongitude  Float?
+  lastLocation   Unsupported("geography(Point, 4326)")?
   lastLocationAt DateTime?
 
   // Preferências
@@ -142,7 +141,7 @@ model User {
   @@index([role])
   @@index([status])
   @@index([reputationScore])
-  @@index([lastLatitude, lastLongitude])
+  @@index([lastLocation], type: Gist)
   @@map("users")
 }
 
@@ -231,12 +230,10 @@ model Incident {
   categoryId  String
   title       String
   description String
-  latitude    Float
-  longitude   Float
   address     String?
 
   // Coluna espacial do PostGIS para consultas de proximidade
-  location Unsupported("geography(Point, 4326)")?
+  location Unsupported("geography(Point, 4326)")
 
   status IncidentStatus @default(ACTIVE)
 
@@ -271,8 +268,8 @@ model Incident {
   @@index([status, expiresAt])
   @@index([categoryId, status, createdAt])
   @@index([authorId])
-  @@index([latitude, longitude])
   @@index([createdAt])
+  @@index([location], type: Gist)
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "incidents_title_trgm_idx")
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "incidents_description_trgm_idx")
   @@map("incidents")

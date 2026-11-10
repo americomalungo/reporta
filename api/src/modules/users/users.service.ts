@@ -4,12 +4,11 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
-  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { UserRepository } from '@infra/repositories/users.repository';
+import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
 import { AccountStatus } from '@/generated/prisma';
 import { Auth, DecodedIdToken } from 'firebase-admin/auth';
 import { FIREBASE_AUTH } from '@/src/infrastructure/firebase/firebase.constants';
@@ -41,7 +40,6 @@ export class UsersService {
       id: user.id,
       name: user.name,
       role: user.role ? user.role : UserRole.USER,
-
       email: user.email,
       phone: currentUser.phone_number,
       alertsEnabled: user.alertsEnabled,
@@ -60,49 +58,46 @@ export class UsersService {
     dto: CreateUserDto,
     currentUser: DecodedIdToken,
   ): Promise<ReturnUserDto> {
-    const firebaseUid = currentUser.uid;
-    const email = currentUser.email;
+    try {
+      const firebaseUid = currentUser.uid;
+      const email = currentUser.email;
 
-    if (!email) {
-      throw new BadRequestException('Conta firebase sem email');
+      if (!email) {
+        throw new BadRequestException('Conta firebase sem email');
+      }
+
+      const existing = await this.repository.findUnique({ firebaseUid });
+      if (existing) throw new ConflictException('User already exists');
+
+      const defaultRole = UserRole.USER;
+      await this.auth.setCustomUserClaims(firebaseUid, { role: defaultRole });
+
+      const data = {
+        name: dto.name,
+        phone: dto.phone,
+        avatarUrl: dto.avatarUrl ? dto.avatarUrl : undefined,
+        alertRadiusM: dto?.alertRadiusM,
+        alertsEnabled: dto?.alertsEnabled,
+        lastLatitude: dto?.lastLatitude,
+        lastLongitude: dto?.lastLongitude,
+        firebaseUid,
+        email,
+      };
+      const user = await this.repository.create(data);
+
+      return {
+        id: user.id,
+        name: user.name,
+        role: user.role ? user.role : UserRole.USER,
+        email: user.email,
+        alertRadiusM: user.alertRadiusM,
+        alertsEnabled: user.alertsEnabled,
+        phone: user.phone ? user.phone : undefined,
+        avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
+      };
+    } catch (error) {
+      throw error;
     }
-
-    const existing = await this.repository.findUnique({ firebaseUid });
-    if (existing) throw new ConflictException('User already exists');
-
-    const defaultRole = UserRole.USER;
-    await this.auth.setCustomUserClaims(firebaseUid, { role: defaultRole });
-
-    const data = {
-      name: dto.name,
-      phone: dto.phone,
-      avatarUrl: dto.avatarUrl ? dto.avatarUrl : undefined,
-      alertRadiusM: dto?.alertRadiusM,
-      alertsEnable: dto?.alertsEnabled,
-      lastLatitude: dto?.lastLatitude,
-      lastLongitude: dto?.lastLongitude,
-      firebaseUid,
-      email,
-    };
-    const user = await this.repository.create(data);
-
-    if (!user) {
-      throw new InternalServerErrorException(
-        'Não foi possivel criar o usuario',
-      );
-    }
-
-    return {
-      id: user.id,
-      name: user.name,
-      role: user.role ? user.role : UserRole.USER,
-
-      email: user.email,
-      alertRadiusM: user.alertRadiusM,
-      alertsEnabled: user.alertsEnabled,
-      phone: user.phone ? user.phone : undefined,
-      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
-    };
   }
 
   /**
@@ -116,6 +111,10 @@ export class UsersService {
       user.role === UserRole.ADMIN ? {} : { status: AccountStatus.ACTIVE };
 
     const users = await this.repository.findMany(where);
+
+    if (!users) {
+      throw new NotFoundException('Nenhun usuário encontrado');
+    }
 
     return users.map((u) => ({
       id: u.id,
@@ -174,29 +173,32 @@ export class UsersService {
     dto: UpdateUserDto,
     currentUser: DecodedIdToken,
   ): Promise<ReturnUserDto> {
-    const targetUser = await this.repository.findUnique(where);
+    try {
+      const targetUser = await this.repository.findUnique(where);
 
-    if (!targetUser) {
-      throw new NotFoundException('User not found');
+      if (!targetUser) {
+        throw new NotFoundException('User not found');
+      }
+      if (
+        targetUser?.firebaseUid !== currentUser.uid &&
+        currentUser.role !== UserRole.ADMIN
+      ) {
+        throw new ForbiddenException('Não autorizado');
+      }
+      const user = await this.repository.update(where, dto);
+      return {
+        id: user.id,
+        name: user.name,
+        role: user.role ? user.role : UserRole.USER,
+        email: user.email,
+        phone: user.phone ? user.phone : undefined,
+        alertsEnabled: user.alertsEnabled,
+        avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
+        alertRadiusM: user?.alertRadiusM,
+      };
+    } catch (error) {
+      throw error;
     }
-    if (
-      targetUser?.firebaseUid !== currentUser.uid ||
-      currentUser.role !== UserRole.ADMIN
-    ) {
-      throw new ForbiddenException('Não autorizado');
-    }
-    const user = await this.repository.update(where, dto);
-
-    return {
-      id: user.id,
-      name: user.name,
-      role: user.role ? user.role : UserRole.USER,
-      email: user.email,
-      phone: user.phone ? user.phone : undefined,
-      alertsEnabled: user.alertsEnabled,
-      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
-      alertRadiusM: user?.alertRadiusM,
-    };
   }
 
   /**
@@ -209,43 +211,43 @@ export class UsersService {
     where: { id: string },
     currentUser: DecodedIdToken,
   ): Promise<{ message: string }> {
-    const targetUser = await this.repository.findUnique(where);
+    try {
+      const targetUser = await this.repository.findUnique(where);
 
-    if (!targetUser) {
-      throw new NotFoundException('Usuário não encontrado');
+      if (!targetUser) {
+        throw new NotFoundException('Usuário não encontrado');
+      }
+
+      if (
+        targetUser.firebaseUid !== currentUser.uid &&
+        currentUser.role !== UserRole.ADMIN
+      ) {
+        throw new ForbiddenException('Não autorizado');
+      }
+
+      const dataToUpdate = {
+        id: targetUser.id,
+        firebaseUid: `deleted_${targetUser.id}`,
+        role: targetUser.role ?? UserRole.USER,
+        email: `deleted+${targetUser.id}@reporta.com`,
+        name: 'Utilizador removido',
+        avatarUrl: 'avatarurldeleted',
+        phone: 'phonenumberdeleted',
+        alertsEnabled: false,
+        lastLongitude: 0,
+        lastLatitude: 0,
+        alertRadiusM: 0,
+        status: AccountStatus.DELETED,
+        statusChangedAt: new Date(),
+      };
+
+      const user = await this.repository.update(where, dataToUpdate);
+
+      return {
+        message: `Usuário com id ${where.id} removido com sucesso.`,
+      };
+    } catch (error) {
+      throw error;
     }
-
-    if (
-      targetUser.firebaseUid !== currentUser.uid &&
-      currentUser.role !== UserRole.ADMIN
-    ) {
-      throw new ForbiddenException('Não autorizado');
-    }
-
-    const dataToUpdate = {
-      id: targetUser.id,
-      firebaseUid: `deleted_${targetUser.id}`,
-      role: targetUser.role ?? UserRole.USER,
-      email: `deleted+${targetUser.id}@reporta.com`,
-      name: 'Utilizador removido',
-      avatarUrl: 'avatarurldeleted',
-      phone: 'phonenumberdeleted',
-      alertsEnabled: false,
-      lastLongitude: 0,
-      lastLatitude: 0,
-      alertRadiusM: 0,
-      status: AccountStatus.DELETED,
-      statusChangedAt: new Date(),
-    };
-
-    const user = await this.repository.update(where, dataToUpdate);
-
-    if (!user) {
-      throw new InternalServerErrorException('Erro ao atualizar o usuário');
-    }
-
-    return {
-      message: `Usuário com id ${where.id} removido com sucesso.`,
-    };
   }
 }
