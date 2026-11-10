@@ -150,13 +150,14 @@ model User {
 model UserStatusHistory {
   id         String        @id @default(cuid())
   userId     String
-  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   fromStatus AccountStatus
   toStatus   AccountStatus
   reason     String?
   until      DateTime?
-  changedBy  String? // id do admin, ou null se automático
+  changedBy  String?
   createdAt  DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@map("user_status_history")
@@ -223,11 +224,9 @@ model Category {
   description String?
   icon        String?
   color       String?
+  isActive    Boolean @default(true)
+  isRisk      Boolean @default(false)
 
-  isRisk Boolean @default(false)
-
-  isActive  Boolean  @default(true)
-  sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -320,12 +319,13 @@ model IncidentMedia {
 model Vote {
   id         String   @id @default(cuid())
   incidentId String
-  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   type       VoteType
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([incidentId, userId])
   @@index([incidentId, type])

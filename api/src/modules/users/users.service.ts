@@ -25,8 +25,6 @@ export class UsersService {
 
   /**
    * Função que apresenta o perfil do usuario autenticado
-   *
-   * 
    * @param {DecodedIdToken} currentUser
    * @returns {Promise<ReturnUserDto>}
    */
@@ -54,8 +52,6 @@ export class UsersService {
 
   /**
    * Função que cria um usuário no banco de dados
-   *
-   * 
    * @param {CreateUserDto} dto
    * @param {DecodedIdToken} currentUser
    * @returns {Promise<ReturnUserDto>}
@@ -77,7 +73,18 @@ export class UsersService {
     const defaultRole = UserRole.USER;
     await this.auth.setCustomUserClaims(firebaseUid, { role: defaultRole });
 
-    const user = await this.repository.create(dto, firebaseUid, email);
+    const data = {
+      name: dto.name,
+      phone: dto.phone,
+      avatarUrl: dto.avatarUrl ? dto.avatarUrl : undefined,
+      alertRadiusM: dto?.alertRadiusM,
+      alertsEnable: dto?.alertsEnabled,
+      lastLatitude: dto?.lastLatitude,
+      lastLongitude: dto?.lastLongitude,
+      firebaseUid,
+      email,
+    };
+    const user = await this.repository.create(data);
 
     if (!user) {
       throw new InternalServerErrorException(
@@ -99,41 +106,47 @@ export class UsersService {
   }
 
   /**
-   * Função que retorna todos usuarios ativos
-   *
-   * 
+   * Função que retorna todos usuarios
+   * Se o usuario atenticado for admin, retorna todos. Senão retorna somente os ativos
+   * @param {DecodedIdToken} user
    * @returns {Promise<ReturnUserDto[]>}
    */
-  async findAll(): Promise<ReturnUserDto[]> {
-    const where = {
-      status: AccountStatus.ACTIVE,
-    };
+  async findAll(user: DecodedIdToken): Promise<ReturnUserDto[]> {
+    const where =
+      user.role === UserRole.ADMIN ? {} : { status: AccountStatus.ACTIVE };
 
     const users = await this.repository.findMany(where);
 
-    return users.map((user) => ({
-      id: user.id,
-      name: user.name,
-      role: user.role ? user.role : UserRole.USER,
-      email: user.email,
-      phone: user.phone ? user.phone : undefined,
-      alertsEnabled: user.alertsEnabled,
-      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
-      alertRadiusM: user?.alertRadiusM,
+    return users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      role: u.role ?? UserRole.USER,
+      email: u.email,
+      phone: u.phone ?? undefined,
+      alertsEnabled: u.alertsEnabled,
+      avatarUrl: u.avatarUrl ?? undefined,
+      alertRadiusM: u.alertRadiusM,
     }));
   }
 
   /**
    * Função que retorna o perfil de um usuário
-   *
-   * 
-   * @param {{ id: string }} where
+   * @param {DecodedIdToken} currentUser
+   * @param {{ id: string }} param
    * @returns {Promise<ReturnUserDto>}
    */
-  async findOne(where: { id: string }): Promise<ReturnUserDto> {
+  async findOne(
+    currentUser: DecodedIdToken,
+    param: { id: string },
+  ): Promise<ReturnUserDto> {
+    const where =
+      currentUser.role === UserRole.ADMIN
+        ? param
+        : { id: param.id, AccountStatus: AccountStatus.ACTIVE };
+
     const user = await this.repository.findUnique(where);
 
-    if (!user || user.status !== AccountStatus.ACTIVE) {
+    if (!user) {
       throw new NotFoundException('User not found');
     }
 
@@ -151,8 +164,6 @@ export class UsersService {
 
   /**
    * Função que atualiza um usuário
-   *
-   * 
    * @param {{ id: string }} where
    * @param {UpdateUserDto} dto
    * @param {DecodedIdToken} currentUser
@@ -163,16 +174,18 @@ export class UsersService {
     dto: UpdateUserDto,
     currentUser: DecodedIdToken,
   ): Promise<ReturnUserDto> {
+    const targetUser = await this.repository.findUnique(where);
+
+    if (!targetUser) {
+      throw new NotFoundException('User not found');
+    }
     if (
-      (await this.repository.findUnique(where))?.firebaseUid !== currentUser.uid
+      targetUser?.firebaseUid !== currentUser.uid ||
+      currentUser.role !== UserRole.ADMIN
     ) {
       throw new ForbiddenException('Não autorizado');
     }
     const user = await this.repository.update(where, dto);
-
-    if (!user || user.status !== AccountStatus.ACTIVE) {
-      throw new NotFoundException('User not found');
-    }
 
     return {
       id: user.id,
@@ -188,8 +201,6 @@ export class UsersService {
 
   /**
    * Função que elimina (soft delete) um usuário
-   *
-   * 
    * @param {{ id: string }} where
    * @param {DecodedIdToken} currentUser
    * @returns {Promise<{ message: string }>}
@@ -201,77 +212,40 @@ export class UsersService {
     const targetUser = await this.repository.findUnique(where);
 
     if (!targetUser) {
-      throw new NotFoundException('Usuario não encontrado');
+      throw new NotFoundException('Usuário não encontrado');
     }
 
-    if (targetUser.firebaseUid !== currentUser.uid) {
+    if (
+      targetUser.firebaseUid !== currentUser.uid &&
+      currentUser.role !== UserRole.ADMIN
+    ) {
       throw new ForbiddenException('Não autorizado');
     }
 
-    const dataToUpdate = await this.generateAnonymizedUserData(where.id);
+    const dataToUpdate = {
+      id: targetUser.id,
+      firebaseUid: `deleted_${targetUser.id}`,
+      role: targetUser.role ?? UserRole.USER,
+      email: `deleted+${targetUser.id}@reporta.com`,
+      name: 'Utilizador removido',
+      avatarUrl: 'avatarurldeleted',
+      phone: 'phonenumberdeleted',
+      alertsEnabled: false,
+      lastLongitude: 0,
+      lastLatitude: 0,
+      alertRadiusM: 0,
+      status: AccountStatus.DELETED,
+      statusChangedAt: new Date(),
+    };
 
     const user = await this.repository.update(where, dataToUpdate);
 
     if (!user) {
-      throw new InternalServerErrorException(
-        'Usuário não deletado. Erro interno do servidor',
-      );
+      throw new InternalServerErrorException('Erro ao atualizar o usuário');
     }
 
     return {
-      message: `Usuario com id ${where.id} removido com sucesso.`,
-    };
-  }
-
-  /**
-   * Função que altera dados do usuário para ser deletado(soft delete)
-   *
-   * @private
-   * 
-   * @param {string} id
-   * @returns {Promise<
-   *     ReturnUserDto & {
-   *       lastLongitude: undefined;
-   *       lastLatitude: undefined;
-   *       firebaseUid: string;
-   *       alertRadiusM: undefined;
-   *       status: AccountStatus;
-   *       statusChangedAt: Date;
-   *     }
-   *   >}
-   */
-  private async generateAnonymizedUserData(id: string): Promise<
-    ReturnUserDto & {
-      lastLongitude: undefined;
-      lastLatitude: undefined;
-      firebaseUid: string;
-      alertRadiusM: undefined;
-      status: AccountStatus;
-      statusChangedAt: Date;
-    }
-  > {
-    const user = await this.findOne({ id });
-
-    if (!user) {
-      throw new NotFoundException(
-        `Usuário com ID ${id} não encontrado para anonimização.`,
-      );
-    }
-
-    return {
-      id: user.id,
-      firebaseUid: `deleted_${user.id}`,
-      role: user.role ?? UserRole.USER,
-      email: `deleted+${user.id}@reporta.com`,
-      name: 'Utilizador removido',
-      avatarUrl: undefined,
-      phone: undefined,
-      alertsEnabled: false,
-      lastLongitude: undefined,
-      lastLatitude: undefined,
-      alertRadiusM: undefined,
-      status: AccountStatus.DELETED,
-      statusChangedAt: new Date(),
+      message: `Usuário com id ${where.id} removido com sucesso.`,
     };
   }
 }

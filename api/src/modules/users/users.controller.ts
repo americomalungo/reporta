@@ -17,6 +17,11 @@ import type { DecodedIdToken } from 'firebase-admin/auth';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Get('me')
+  me(@CurrentUser() user: DecodedIdToken) {
+    return this.usersService.me(user);
+  }
+
   @Post()
   create(
     @Body() dto: CreateUserDto,
@@ -26,13 +31,13 @@ export class UsersController {
   }
 
   @Get()
-  findAll() {
-    return this.usersService.findAll();
+  findAll(@CurrentUser() user: DecodedIdToken) {
+    return this.usersService.findAll(user);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne({ id: id });
+  findOne(@CurrentUser() user: DecodedIdToken, @Param('id') id: string) {
+    return this.usersService.findOne(user, { id: id });
   }
 
   @Patch(':id')
