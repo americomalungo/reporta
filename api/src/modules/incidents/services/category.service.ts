@@ -23,6 +23,7 @@ export class CategoryService {
     const name = this.normalizeName(dto.name);
     return this.repository.create({
       name,
+      description: dto.description,
       icon: dto.icon,
       color: dto.color,
       isRisk: dto.isRisk,
@@ -90,6 +91,9 @@ export class CategoryService {
         : this.normalizeName(updateCategoryDto.name);
     const data = {
       ...(name !== undefined && { name, slug: this.generateSlug(name) }),
+      ...(updateCategoryDto.description !== undefined && {
+        description: updateCategoryDto.description,
+      }),
       ...(updateCategoryDto.icon !== undefined && {
         icon: updateCategoryDto.icon,
       }),

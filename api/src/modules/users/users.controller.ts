@@ -11,6 +11,7 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CurrentUser } from '@/src/common/decorators/current-user.decorator';
+import { AllowUnregistered } from '@/src/common/decorators/allow-unregistered.decorator';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 
 @Controller('users')
@@ -22,6 +23,7 @@ export class UsersController {
     return this.usersService.me(user);
   }
 
+  @AllowUnregistered()
   @Post()
   create(
     @Body() dto: CreateUserDto,

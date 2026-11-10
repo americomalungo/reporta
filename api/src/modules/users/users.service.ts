@@ -9,10 +9,9 @@ import {
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
-import { AccountStatus } from '@/generated/prisma';
 import { Auth, DecodedIdToken } from 'firebase-admin/auth';
 import { FIREBASE_AUTH } from '@/src/infrastructure/firebase/firebase.constants';
-import { UserRole } from '@/src/common/enums/users.enums';
+import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
 import { ReturnUserDto } from './dto/return-user.dto';
 
 @Injectable()
@@ -58,46 +57,59 @@ export class UsersService {
     dto: CreateUserDto,
     currentUser: DecodedIdToken,
   ): Promise<ReturnUserDto> {
-    try {
-      const firebaseUid = currentUser.uid;
-      const email = currentUser.email;
+    const firebaseUid = currentUser.uid;
+    const email = currentUser.email;
 
-      if (!email) {
-        throw new BadRequestException('Conta firebase sem email');
-      }
-
-      const existing = await this.repository.findUnique({ firebaseUid });
-      if (existing) throw new ConflictException('User already exists');
-
-      const defaultRole = UserRole.USER;
-      await this.auth.setCustomUserClaims(firebaseUid, { role: defaultRole });
-
-      const data = {
-        name: dto.name,
-        phone: dto.phone,
-        avatarUrl: dto.avatarUrl ? dto.avatarUrl : undefined,
-        alertRadiusM: dto?.alertRadiusM,
-        alertsEnabled: dto?.alertsEnabled,
-        lastLatitude: dto?.lastLatitude,
-        lastLongitude: dto?.lastLongitude,
-        firebaseUid,
-        email,
-      };
-      const user = await this.repository.create(data);
-
-      return {
-        id: user.id,
-        name: user.name,
-        role: user.role ? user.role : UserRole.USER,
-        email: user.email,
-        alertRadiusM: user.alertRadiusM,
-        alertsEnabled: user.alertsEnabled,
-        phone: user.phone ? user.phone : undefined,
-        avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
-      };
-    } catch (error) {
-      throw error;
+    if (!email) {
+      throw new BadRequestException('Conta firebase sem email');
     }
+
+    const hasLatitude = dto.lastLatitude !== undefined;
+    const hasLongitude = dto.lastLongitude !== undefined;
+    if (hasLatitude !== hasLongitude) {
+      throw new BadRequestException(
+        'Latitude e longitude devem ser informadas em conjunto',
+      );
+    }
+    const lastLocation =
+      dto.lastLatitude !== undefined && dto.lastLongitude !== undefined
+        ? {
+            latitude: dto.lastLatitude,
+            longitude: dto.lastLongitude,
+          }
+        : undefined;
+
+    const existing = await this.repository.findUnique({ firebaseUid });
+    if (existing) throw new ConflictException('User already exists');
+
+    await this.auth.setCustomUserClaims(firebaseUid, { role: UserRole.USER });
+
+    const data = {
+      name: dto.name,
+      phone: dto.phone,
+      avatarUrl: dto.avatarUrl ? dto.avatarUrl : undefined,
+      alertRadiusM: dto.alertRadiusM,
+      alertsEnabled: dto.alertsEnabled,
+      firebaseUid,
+      email,
+    };
+
+    const user = await this.repository.create(
+      data,
+      lastLocation?.latitude,
+      lastLocation?.longitude,
+    );
+
+    return {
+      id: user.id,
+      name: user.name,
+      role: user.role ? user.role : UserRole.USER,
+      email: user.email,
+      alertRadiusM: user.alertRadiusM,
+      alertsEnabled: user.alertsEnabled,
+      phone: user.phone ? user.phone : undefined,
+      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
+    };
   }
 
   /**
@@ -134,12 +146,13 @@ export class UsersService {
     currentUser: DecodedIdToken,
     param: { id: string },
   ): Promise<ReturnUserDto> {
-    const where =
+    const user =
       currentUser.role === UserRole.ADMIN
-        ? param
-        : { id: param.id, AccountStatus: AccountStatus.ACTIVE };
-
-    const user = await this.repository.findUnique(where);
+        ? await this.repository.findUnique(param)
+        : await this.repository.findFirst({
+            id: param.id,
+            status: AccountStatus.ACTIVE,
+          });
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -169,32 +182,59 @@ export class UsersService {
     dto: UpdateUserDto,
     currentUser: DecodedIdToken,
   ): Promise<ReturnUserDto> {
-    try {
-      const targetUser = await this.repository.findUnique(where);
-
-      if (!targetUser) {
-        throw new NotFoundException('User not found');
-      }
-      if (
-        targetUser?.firebaseUid !== currentUser.uid &&
-        currentUser.role !== UserRole.ADMIN
-      ) {
-        throw new ForbiddenException('Não autorizado');
-      }
-      const user = await this.repository.update(where, dto);
-      return {
-        id: user.id,
-        name: user.name,
-        role: user.role ? user.role : UserRole.USER,
-        email: user.email,
-        phone: user.phone ? user.phone : undefined,
-        alertsEnabled: user.alertsEnabled,
-        avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
-        alertRadiusM: user?.alertRadiusM,
-      };
-    } catch (error) {
-      throw error;
+    const hasLatitude = dto.lastLatitude !== undefined;
+    const hasLongitude = dto.lastLongitude !== undefined;
+    if (hasLatitude !== hasLongitude) {
+      throw new BadRequestException(
+        'Latitude e longitude devem ser informadas em conjunto',
+      );
     }
+    const lastLocation =
+      dto.lastLatitude !== undefined && dto.lastLongitude !== undefined
+        ? {
+            latitude: dto.lastLatitude,
+            longitude: dto.lastLongitude,
+          }
+        : undefined;
+
+    const targetUser = await this.repository.findUnique(where);
+
+    if (!targetUser) {
+      throw new NotFoundException('User not found');
+    }
+    if (
+      targetUser.firebaseUid !== currentUser.uid &&
+      currentUser.role !== UserRole.ADMIN
+    ) {
+      throw new ForbiddenException('Não autorizado');
+    }
+
+    const userData: UpdateUserDto = {
+      name: dto.name,
+      avatarUrl: dto.avatarUrl,
+      phone: dto.phone,
+      alertsEnabled: dto.alertsEnabled,
+      alertRadiusM: dto.alertRadiusM,
+      email: dto.email,
+    };
+    const user = await this.repository.update(where, userData);
+    if (lastLocation) {
+      await this.repository.setLastLocation(
+        user.id,
+        lastLocation.latitude,
+        lastLocation.longitude,
+      );
+    }
+    return {
+      id: user.id,
+      name: user.name,
+      role: user.role ? user.role : UserRole.USER,
+      email: user.email,
+      phone: user.phone ? user.phone : undefined,
+      alertsEnabled: user.alertsEnabled,
+      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
+      alertRadiusM: user.alertRadiusM,
+    };
   }
 
   /**
@@ -207,43 +247,55 @@ export class UsersService {
     where: { id: string },
     currentUser: DecodedIdToken,
   ): Promise<{ message: string }> {
-    try {
-      const targetUser = await this.repository.findUnique(where);
+    const targetUser = await this.repository.findUnique(where);
 
-      if (!targetUser) {
-        throw new NotFoundException('Usuário não encontrado');
-      }
-
-      if (
-        targetUser.firebaseUid !== currentUser.uid &&
-        currentUser.role !== UserRole.ADMIN
-      ) {
-        throw new ForbiddenException('Não autorizado');
-      }
-
-      const dataToUpdate = {
-        id: targetUser.id,
-        firebaseUid: `deleted_${targetUser.id}`,
-        role: targetUser.role ?? UserRole.USER,
-        email: `deleted+${targetUser.id}@reporta.com`,
-        name: 'Utilizador removido',
-        avatarUrl: 'avatarurldeleted',
-        phone: 'phonenumberdeleted',
-        alertsEnabled: false,
-        lastLongitude: 0,
-        lastLatitude: 0,
-        alertRadiusM: 0,
-        status: AccountStatus.DELETED,
-        statusChangedAt: new Date(),
-      };
-
-      await this.repository.update(where, dataToUpdate);
-
-      return {
-        message: `Usuário com id ${where.id} removido com sucesso.`,
-      };
-    } catch (error) {
-      throw error;
+    if (!targetUser) {
+      throw new NotFoundException('Usuário não encontrado');
     }
+
+    if (
+      targetUser.firebaseUid !== currentUser.uid &&
+      currentUser.role !== UserRole.ADMIN
+    ) {
+      throw new ForbiddenException('Não autorizado');
+    }
+
+    const actor =
+      targetUser.firebaseUid === currentUser.uid
+        ? targetUser
+        : await this.repository.findUnique({ firebaseUid: currentUser.uid });
+    if (!actor) {
+      throw new ForbiddenException(
+        'O utilizador que executa a ação não foi encontrado',
+      );
+    }
+
+    const originalFirebaseUid = targetUser.firebaseUid;
+    await this.auth.updateUser(originalFirebaseUid, { disabled: true });
+    await this.auth.revokeRefreshTokens(originalFirebaseUid);
+
+    const statusChangedAt = new Date();
+    const dataToUpdate = {
+      firebaseUid: `deleted_${targetUser.id}`,
+      email: `deleted+${targetUser.id}@reporta.com`,
+      name: 'Utilizador removido',
+      avatarUrl: null,
+      phone: null,
+      alertsEnabled: false,
+      status: AccountStatus.DELETED,
+      statusChangedAt,
+      statusChangedBy: actor.id,
+    };
+
+    await this.repository.softDeleteUser(where, dataToUpdate, {
+      fromStatus: targetUser.status,
+      toStatus: AccountStatus.DELETED,
+      changedBy: actor.id,
+      user: { connect: { id: targetUser.id } },
+    });
+
+    return {
+      message: `Usuário com id ${where.id} removido com sucesso.`,
+    };
   }
 }

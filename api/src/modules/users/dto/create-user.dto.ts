@@ -9,6 +9,7 @@ import {
   IsString,
   IsUrl,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateUserDto {
@@ -24,12 +25,12 @@ export class CreateUserDto {
   @IsOptional()
   phone?: string;
 
+  @ValidateIf((user: CreateUserDto) => user.lastLongitude !== undefined)
   @IsLatitude()
-  @IsOptional()
   lastLatitude?: number;
 
+  @ValidateIf((user: CreateUserDto) => user.lastLatitude !== undefined)
   @IsLongitude()
-  @IsOptional()
   lastLongitude?: number;
 
   @IsBoolean()

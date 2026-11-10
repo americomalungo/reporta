@@ -4,9 +4,17 @@ import { CategoryRepository } from '@/src/infrastructure/repositories/category.r
 import { CategoriesController } from './controllers/category.controller';
 import { CategoryService } from './services/category.service';
 import { IncidentsController } from './controllers/incidents.controller';
+import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
+import { UsersModule } from '../users/users.module';
 
 @Module({
+  imports: [UsersModule],
   controllers: [IncidentsController, CategoriesController],
-  providers: [IncidentsService, CategoryService, CategoryRepository],
+  providers: [
+    IncidentsService,
+    CategoryService,
+    CategoryRepository,
+    IncidentsRepository,
+  ],
 })
 export class IncidentsModule {}
