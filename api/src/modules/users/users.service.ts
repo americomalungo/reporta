@@ -112,10 +112,6 @@ export class UsersService {
 
     const users = await this.repository.findMany(where);
 
-    if (!users) {
-      throw new NotFoundException('Nenhun usuário encontrado');
-    }
-
     return users.map((u) => ({
       id: u.id,
       name: u.name,
@@ -241,7 +237,7 @@ export class UsersService {
         statusChangedAt: new Date(),
       };
 
-      const user = await this.repository.update(where, dataToUpdate);
+      await this.repository.update(where, dataToUpdate);
 
       return {
         message: `Usuário com id ${where.id} removido com sucesso.`,

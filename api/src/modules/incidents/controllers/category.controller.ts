@@ -8,32 +8,33 @@ import { CurrentUser } from '@/src/common/decorators/current-user.decorator';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 
 @Controller('categories')
-@Roles(UserRole.ADMIN)
-export class CategorysController {
-  constructor(private readonly incidentsService: CategoryService) {}
+export class CategoriesController {
+  constructor(private readonly categoryService: CategoryService) {}
 
   @Post()
+  @Roles(UserRole.ADMIN)
   create(@Body() createCategoryDto: CreateCategoryDto) {
-    return this.incidentsService.create(createCategoryDto);
+    return this.categoryService.create(createCategoryDto);
   }
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.USER)
   findAll(@CurrentUser() user: DecodedIdToken) {
-    return this.incidentsService.findAll(user);
+    return this.categoryService.findAll(user);
   }
 
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.USER)
   findOne(@CurrentUser() user: DecodedIdToken, @Param('id') id: string) {
-    return this.incidentsService.findOne(user, id);
+    return this.categoryService.findOne(user, id);
   }
 
   @Patch(':id')
+  @Roles(UserRole.ADMIN)
   update(
     @Param('id') id: string,
     @Body() updateCategoryDto: UpdateCategoryDto,
   ) {
-    return this.incidentsService.update({ id }, updateCategoryDto);
+    return this.categoryService.update({ id }, updateCategoryDto);
   }
 }

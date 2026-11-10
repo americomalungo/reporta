@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { IncidentsRepository } from '@/src/infrastructure/repositories/category.repository';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { CategoryRepository } from '@/src/infrastructure/repositories/category.repository';
 import { DecodedIdToken } from 'firebase-admin/auth';
 import { UserRole } from '@/src/common/enums/users.enums';
 import { ReturnCategoryDto } from '../dto/return-category.dto';
@@ -8,7 +12,7 @@ import { UpdateCategoryDto } from '../dto/update-category.dto';
 
 @Injectable()
 export class CategoryService {
-  constructor(private readonly repository: IncidentsRepository) {}
+  constructor(private readonly repository: CategoryRepository) {}
 
   /**
    * Função que cria uma categoria. Acessado pelo controlador só por admins
@@ -16,16 +20,14 @@ export class CategoryService {
    * @returns {Promise<ReturnCategoryDto>}
    */
   async create(dto: CreateCategoryDto): Promise<ReturnCategoryDto> {
-    try {
-      const slug = this.generateSlug(dto.name);
-      const data = {
-        ...dto,
-        slug,
-      };
-      return await this.repository.create(data);
-    } catch (error) {
-      throw error;
-    }
+    const name = this.normalizeName(dto.name);
+    return this.repository.create({
+      name,
+      icon: dto.icon,
+      color: dto.color,
+      isRisk: dto.isRisk,
+      slug: this.generateSlug(name),
+    });
   }
 
   /**
@@ -40,9 +42,6 @@ export class CategoryService {
 
     const categories = await this.repository.findMany(where);
 
-    if (!categories) {
-      throw new NotFoundException('Categorias não encontradas');
-    }
     return categories.map((category) => ({
       id: category.id,
       name: category.name,
@@ -85,15 +84,36 @@ export class CategoryService {
   }
 
   async update(where: { id: string }, updateCategoryDto: UpdateCategoryDto) {
-    try {
-      const category = await this.repository.update(
-        where,
-        updateCategoryDto,
-      );
-      return category;
-    } catch (error) {
-      throw error;
+    const name =
+      updateCategoryDto.name === undefined
+        ? undefined
+        : this.normalizeName(updateCategoryDto.name);
+    const data = {
+      ...(name !== undefined && { name, slug: this.generateSlug(name) }),
+      ...(updateCategoryDto.icon !== undefined && {
+        icon: updateCategoryDto.icon,
+      }),
+      ...(updateCategoryDto.color !== undefined && {
+        color: updateCategoryDto.color,
+      }),
+      ...(updateCategoryDto.isRisk !== undefined && {
+        isRisk: updateCategoryDto.isRisk,
+      }),
+    };
+    return this.repository.update(where, data);
+  }
+
+  private normalizeName(name: string): string {
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      throw new BadRequestException('O nome da categoria não pode estar vazio');
     }
+    if (!this.generateSlug(normalizedName)) {
+      throw new BadRequestException(
+        'O nome da categoria deve conter letras ou números',
+      );
+    }
+    return normalizedName;
   }
 
   private generateSlug(name: string): string {
