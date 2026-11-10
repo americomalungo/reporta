@@ -27,7 +27,7 @@ export class CategoryService {
       slug,
     };
 
-    const category = await this.repository.create(data);
+    const category = await this.repository.createCategory(data);
 
     if (!category) {
       throw new InternalServerErrorException(
@@ -48,7 +48,7 @@ export class CategoryService {
   async findAll(user: DecodedIdToken): Promise<ReturnCategoryDto[]> {
     const where = user.role === UserRole.ADMIN ? {} : { isActive: true };
 
-    const categories = await this.repository.findMany(where);
+    const categories = await this.repository.findManyCategory(where);
 
     return categories.map(() => new ReturnCategoryDto());
   }
@@ -67,7 +67,7 @@ export class CategoryService {
     const where =
       currentUser.role === UserRole.ADMIN ? { id } : { id, isActive: true };
 
-    const category = await this.repository.findUnique(where);
+    const category = await this.repository.findUniqueCategory(where);
 
     if (!category) {
       throw new NotFoundException('Categoria não encontrada');
@@ -77,7 +77,7 @@ export class CategoryService {
   }
 
   async update(where: { id: string }, updateCategoryDto: UpdateCategoryDto) {
-    const category = this.repository.update(where, updateCategoryDto);
+    const category = this.repository.updateCategory(where, updateCategoryDto);
 
     if (!category) {
       throw new NotFoundException('Categoria não encontrada');

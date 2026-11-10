@@ -39,4 +39,10 @@ export class UserRepository {
       data,
     });
   }
+
+  async deleteUserInterestZone(where: Prisma.UserInterestZoneWhereUniqueInput) {
+    return await this.prismaService.userInterestZone.delete({
+      where,
+    });
+  }
 }

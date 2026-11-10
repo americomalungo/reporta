@@ -137,7 +137,6 @@ model User {
   moderationsTaken ModerationLog[]     @relation("ModerationTarget")
   alertDeliveries  AlertDelivery[]
   statusHistory    UserStatusHistory[]
-  reputationLogs   ReputationLog[]
   interestZones    UserInterestZone[]
 
   @@index([role])
@@ -161,20 +160,6 @@ model UserStatusHistory {
 
   @@index([userId, createdAt])
   @@map("user_status_history")
-}
-
-model ReputationLog {
-  id        String           @id @default(cuid())
-  userId    String
-  points    Int
-  action    ReputationAction
-  reason    String?
-  createdAt DateTime         @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, createdAt])
-  @@map("reputation_logs")
 }
 
 model UserInterestZone {
