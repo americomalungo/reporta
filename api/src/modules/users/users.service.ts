@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -13,6 +14,7 @@ import { AccountStatus } from '@/generated/prisma';
 import { Auth, DecodedIdToken } from 'firebase-admin/auth';
 import { FIREBASE_AUTH } from '@/src/infrastructure/firebase/firebase.constants';
 import { UserRole } from '@/src/common/enums/users.enums';
+import { ReturnUserDto } from './dto/return-user.dto';
 
 @Injectable()
 export class UsersService {
@@ -21,7 +23,47 @@ export class UsersService {
     private readonly repository: UserRepository,
   ) {}
 
-  async create(dto: CreateUserDto, currentUser: DecodedIdToken) {
+  /**
+   * Função que apresenta o perfil do usuario autenticado
+   *
+   * 
+   * @param {DecodedIdToken} currentUser
+   * @returns {Promise<ReturnUserDto>}
+   */
+  async me(currentUser: DecodedIdToken): Promise<ReturnUserDto> {
+    const user = await this.repository.findUnique({
+      firebaseUid: currentUser.uid,
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return {
+      id: user.id,
+      name: user.name,
+      role: user.role ? user.role : UserRole.USER,
+
+      email: user.email,
+      phone: currentUser.phone_number,
+      alertsEnabled: user.alertsEnabled,
+      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
+      alertRadiusM: user?.alertRadiusM,
+    };
+  }
+
+  /**
+   * Função que cria um usuário no banco de dados
+   *
+   * 
+   * @param {CreateUserDto} dto
+   * @param {DecodedIdToken} currentUser
+   * @returns {Promise<ReturnUserDto>}
+   */
+  async create(
+    dto: CreateUserDto,
+    currentUser: DecodedIdToken,
+  ): Promise<ReturnUserDto> {
     const firebaseUid = currentUser.uid;
     const email = currentUser.email;
 
@@ -37,20 +79,32 @@ export class UsersService {
 
     const user = await this.repository.create(dto, firebaseUid, email);
 
+    if (!user) {
+      throw new InternalServerErrorException(
+        'Não foi possivel criar o usuario',
+      );
+    }
+
     return {
       id: user.id,
       name: user.name,
-      role: user.role,
+      role: user.role ? user.role : UserRole.USER,
+
       email: user.email,
       alertRadiusM: user.alertRadiusM,
       alertsEnabled: user.alertsEnabled,
-      firebaseUid: user?.firebaseUid,
-      phone: user?.phone,
-      avatarUrl: user?.avatarUrl,
+      phone: user.phone ? user.phone : undefined,
+      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
     };
   }
 
-  async findAll() {
+  /**
+   * Função que retorna todos usuarios ativos
+   *
+   * 
+   * @returns {Promise<ReturnUserDto[]>}
+   */
+  async findAll(): Promise<ReturnUserDto[]> {
     const where = {
       status: AccountStatus.ACTIVE,
     };
@@ -58,19 +112,25 @@ export class UsersService {
     const users = await this.repository.findMany(where);
 
     return users.map((user) => ({
-      return: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        alertsEnabled: user.alertsEnabled,
-        avatarUrl: user?.avatarUrl,
-        alertRadiusM: user?.alertRadiusM,
-      },
+      id: user.id,
+      name: user.name,
+      role: user.role ? user.role : UserRole.USER,
+      email: user.email,
+      phone: user.phone ? user.phone : undefined,
+      alertsEnabled: user.alertsEnabled,
+      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
+      alertRadiusM: user?.alertRadiusM,
     }));
   }
 
-  async findOne(where: { id: string }) {
+  /**
+   * Função que retorna o perfil de um usuário
+   *
+   * 
+   * @param {{ id: string }} where
+   * @returns {Promise<ReturnUserDto>}
+   */
+  async findOne(where: { id: string }): Promise<ReturnUserDto> {
     const user = await this.repository.findUnique(where);
 
     if (!user || user.status !== AccountStatus.ACTIVE) {
@@ -79,21 +139,30 @@ export class UsersService {
 
     return {
       id: user.id,
+      role: user.role ? user.role : UserRole.USER,
       name: user.name,
       email: user.email,
-      firebaseUid: user.firebaseUid,
-      phone: user.phone,
+      phone: user.phone ? user.phone : undefined,
       alertsEnabled: user.alertsEnabled,
-      avatarUrl: user?.avatarUrl,
+      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
       alertRadiusM: user?.alertRadiusM,
     };
   }
 
+  /**
+   * Função que atualiza um usuário
+   *
+   * 
+   * @param {{ id: string }} where
+   * @param {UpdateUserDto} dto
+   * @param {DecodedIdToken} currentUser
+   * @returns {Promise<ReturnUserDto>}
+   */
   async update(
     where: { id: string },
     dto: UpdateUserDto,
     currentUser: DecodedIdToken,
-  ) {
+  ): Promise<ReturnUserDto> {
     if (
       (await this.repository.findUnique(where))?.firebaseUid !== currentUser.uid
     ) {
@@ -108,38 +177,91 @@ export class UsersService {
     return {
       id: user.id,
       name: user.name,
+      role: user.role ? user.role : UserRole.USER,
       email: user.email,
-      phone: user.phone,
+      phone: user.phone ? user.phone : undefined,
       alertsEnabled: user.alertsEnabled,
-      avatarUrl: user?.avatarUrl,
+      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
       alertRadiusM: user?.alertRadiusM,
     };
   }
 
-  async remove(where: { id: string }, currentUser: DecodedIdToken) {
-    if ((await this.findOne(where)).firebaseUid !== currentUser.uid) {
+  /**
+   * Função que elimina (soft delete) um usuário
+   *
+   * 
+   * @param {{ id: string }} where
+   * @param {DecodedIdToken} currentUser
+   * @returns {Promise<{ message: string }>}
+   */
+  async remove(
+    where: { id: string },
+    currentUser: DecodedIdToken,
+  ): Promise<{ message: string }> {
+    const targetUser = await this.repository.findUnique(where);
+
+    if (!targetUser) {
+      throw new NotFoundException('Usuario não encontrado');
+    }
+
+    if (targetUser.firebaseUid !== currentUser.uid) {
       throw new ForbiddenException('Não autorizado');
     }
 
-    const user = await this.generateAnonymizedUserData(where.id);
+    const dataToUpdate = await this.generateAnonymizedUserData(where.id);
 
-    const updatedUser = await this.repository.update(where, user);
+    const user = await this.repository.update(where, dataToUpdate);
 
-    if (!updatedUser) {
-      throw new NotFoundException('User not found');
+    if (!user) {
+      throw new InternalServerErrorException(
+        'Usuário não deletado. Erro interno do servidor',
+      );
     }
 
     return {
-      message: `User with id ${where.id} has been anonymized and removed.`,
+      message: `Usuario com id ${where.id} removido com sucesso.`,
     };
   }
 
-  private async generateAnonymizedUserData(id: string) {
+  /**
+   * Função que altera dados do usuário para ser deletado(soft delete)
+   *
+   * @private
+   * 
+   * @param {string} id
+   * @returns {Promise<
+   *     ReturnUserDto & {
+   *       lastLongitude: undefined;
+   *       lastLatitude: undefined;
+   *       firebaseUid: string;
+   *       alertRadiusM: undefined;
+   *       status: AccountStatus;
+   *       statusChangedAt: Date;
+   *     }
+   *   >}
+   */
+  private async generateAnonymizedUserData(id: string): Promise<
+    ReturnUserDto & {
+      lastLongitude: undefined;
+      lastLatitude: undefined;
+      firebaseUid: string;
+      alertRadiusM: undefined;
+      status: AccountStatus;
+      statusChangedAt: Date;
+    }
+  > {
     const user = await this.findOne({ id });
 
-    const dataToUpdate = {
+    if (!user) {
+      throw new NotFoundException(
+        `Usuário com ID ${id} não encontrado para anonimização.`,
+      );
+    }
+
+    return {
       id: user.id,
       firebaseUid: `deleted_${user.id}`,
+      role: user.role ?? UserRole.USER,
       email: `deleted+${user.id}@reporta.com`,
       name: 'Utilizador removido',
       avatarUrl: undefined,
@@ -151,7 +273,5 @@ export class UsersService {
       status: AccountStatus.DELETED,
       statusChangedAt: new Date(),
     };
-
-    return dataToUpdate;
   }
 }
