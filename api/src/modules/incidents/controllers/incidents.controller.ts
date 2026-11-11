@@ -1,17 +1,22 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
-  Param,
+  Controller,
   Delete,
+  Get,
+  Param,
+  Post,
   Query,
 } from '@nestjs/common';
-import { IncidentsService } from '../services/incidents.service';
-import { CreateIncidentDto } from '../dto/create-incident.dto';
-import { CurrentUser } from '@/src/common/decorators/current-user.decorator';
 import type { DecodedIdToken } from 'firebase-admin/auth';
+import type { User } from '@/generated/prisma';
+import {
+  CurrentDbUser,
+  CurrentUser,
+} from '@/src/common/decorators/current-user.decorator';
+import { UserRole } from '@/src/common/enums/users.enums';
+import { CreateIncidentDto } from '../dto/create-incident.dto';
 import { IncidentsQueryDto } from '../dto/incidents-query.dto';
+import { IncidentsService } from '../services/incidents.service';
 
 @Controller('incidents')
 export class IncidentsController {
@@ -26,13 +31,29 @@ export class IncidentsController {
   }
 
   @Get()
-  findAll(@Query() query: IncidentsQueryDto) {
-    return this.incidentsService.findAll(query);
+  findAll(
+    @Query() query: IncidentsQueryDto,
+    @CurrentUser() currentUser: DecodedIdToken,
+    @CurrentDbUser() dbUser: User,
+  ) {
+    return this.incidentsService.findAll(
+      query,
+      dbUser.id,
+      currentUser.role === UserRole.ADMIN,
+    );
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @CurrentUser() currentUser: DecodedIdToken) {
-    return this.incidentsService.findOne(id, currentUser);
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: DecodedIdToken,
+    @CurrentDbUser() dbUser: User,
+  ) {
+    return this.incidentsService.findOne(
+      id,
+      dbUser.id,
+      currentUser.role === UserRole.ADMIN,
+    );
   }
 
   @Delete(':id')

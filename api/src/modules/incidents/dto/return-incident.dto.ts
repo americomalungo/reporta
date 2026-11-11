@@ -1,3 +1,5 @@
+import type { VoteType as VoteTypeEnum } from '@/src/common/types/incidents.types';
+
 export class ReturnIncidentDto {
   id: string;
   authorId: string;
@@ -14,4 +16,5 @@ export class ReturnIncidentDto {
   updatedAt: Date;
   latitude: number;
   longitude: number;
+  myVote: VoteTypeEnum | null;
 }

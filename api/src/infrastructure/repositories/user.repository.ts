@@ -102,6 +102,10 @@ export class UserRepository {
     return this.prismaService.$transaction(async (transaction) => {
       const user = await transaction.user.update({ where, data });
       await this.clearLastLocation(user.id, transaction);
+      await transaction.pushToken.updateMany({
+        where: { userId: user.id },
+        data: { isActive: false },
+      });
       await this.createUserStatusHistory(statusHistory, transaction);
       return user;
     });

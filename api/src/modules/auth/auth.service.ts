@@ -26,4 +26,8 @@ export class AuthService implements OnModuleInit {
   disableUser(uid: string): Promise<UserRecord> {
     return this.auth.updateUser(uid, { disabled: true });
   }
+
+  enableUser(uid: string): Promise<UserRecord> {
+    return this.auth.updateUser(uid, { disabled: false });
+  }
 }

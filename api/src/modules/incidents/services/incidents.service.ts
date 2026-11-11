@@ -5,11 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { DecodedIdToken } from 'firebase-admin/auth';
-import { CreateIncidentDto } from '../dto/create-incident.dto';
+import { IncidentStatus } from '@/generated/prisma';
+import { CategoryRepository } from '@/src/infrastructure/repositories/category.repository';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
-import { CategoryRepository } from '@/src/infrastructure/repositories/category.repository';
+import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
+import { CreateIncidentDto } from '../dto/create-incident.dto';
 import { IncidentsQueryDto } from '../dto/incidents-query.dto';
 import { ReturnIncidentDto } from '../dto/return-incident.dto';
 
@@ -19,6 +21,7 @@ export class IncidentsService {
     private readonly incidentsRepository: IncidentsRepository,
     private readonly userRepository: UserRepository,
     private readonly categoryRepository: CategoryRepository,
+    private readonly voteRepository: VoteRepository,
   ) {}
 
   async create(
@@ -55,10 +58,14 @@ export class IncidentsService {
       latitude: dto.latitude,
       longitude: dto.longitude,
     });
-    return this.findOne(id, currentUser);
+    return this.findOne(id, author.id, currentUser.role === UserRole.ADMIN);
   }
 
-  async findAll(query: IncidentsQueryDto): Promise<{
+  async findAll(
+    query: IncidentsQueryDto,
+    viewerId?: string,
+    _isAdmin = false,
+  ): Promise<{
     data: ReturnIncidentDto[];
     page: number;
     limit: number;
@@ -68,7 +75,7 @@ export class IncidentsService {
     const limit = query.limit ?? 20;
     const incidents = await this.incidentsRepository.findMany(
       {
-        status: 'ACTIVE',
+        status: IncidentStatus.ACTIVE,
         expiresAt: { gt: new Date() },
       },
       (page - 1) * limit,
@@ -76,25 +83,25 @@ export class IncidentsService {
     );
     const hasNextPage = incidents.length > limit;
     const pageIncidents = incidents.slice(0, limit);
-    const data = await this.withCoordinates(pageIncidents);
+    const data = await this.withCoordinates(pageIncidents, viewerId);
     return { data, page, limit, hasNextPage };
   }
 
   async findOne(
     id: string,
-    currentUser: DecodedIdToken,
+    viewerId?: string,
+    isAdmin = false,
   ): Promise<ReturnIncidentDto> {
-    const incident =
-      currentUser.role === UserRole.ADMIN
-        ? await this.incidentsRepository.findUnique({ id })
-        : await this.incidentsRepository.findFirst({
-            id,
-            status: { notIn: ['REMOVED', 'DELETED'] },
-          });
+    const incident = isAdmin
+      ? await this.incidentsRepository.findUnique({ id })
+      : await this.incidentsRepository.findFirst({
+          id,
+          status: { notIn: [IncidentStatus.REMOVED, IncidentStatus.DELETED] },
+        });
     if (!incident) {
       throw new NotFoundException('Incidente não encontrado');
     }
-    const [result] = await this.withCoordinates([incident]);
+    const [result] = await this.withCoordinates([incident], viewerId);
     return result;
   }
 
@@ -122,7 +129,7 @@ export class IncidentsService {
     await this.incidentsRepository.update(
       { id },
       {
-        status: 'DELETED',
+        status: IncidentStatus.DELETED,
         removedAt: new Date(),
         removedBy: actor.id,
       },
@@ -132,6 +139,7 @@ export class IncidentsService {
 
   private async withCoordinates(
     incidents: Awaited<ReturnType<IncidentsRepository['findMany']>>,
+    viewerId?: string,
   ): Promise<ReturnIncidentDto[]> {
     const locations = await this.incidentsRepository.getCoordinates(
       incidents.map((incident) => incident.id),
@@ -140,6 +148,18 @@ export class IncidentsService {
       locations.map((location) => [location.id, location]),
     );
 
+    const voteMap = new Map<string, ReturnIncidentDto['myVote']>();
+    if (viewerId) {
+      const votes = await this.voteRepository.findManyByUser(
+        viewerId,
+        incidents.map((incident) => incident.id),
+      );
+
+      votes.forEach((vote) => {
+        voteMap.set(vote.incidentId, vote.type);
+      });
+    }
+
     return incidents.map((incident) => {
       const location = coordinatesById.get(incident.id);
       if (!location) {
@@ -147,6 +167,7 @@ export class IncidentsService {
           'Não foi possível obter a localização do incidente',
         );
       }
+
       return {
         id: incident.id,
         authorId: incident.authorId,
@@ -163,6 +184,7 @@ export class IncidentsService {
         updatedAt: incident.updatedAt,
         latitude: location.latitude,
         longitude: location.longitude,
+        myVote: voteMap.get(incident.id) ?? null,
       };
     });
   }

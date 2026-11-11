@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsLatitude,
   IsLongitude,
@@ -12,16 +13,22 @@ export class CreateIncidentDto {
   @IsNotEmpty()
   categoryId: string;
 
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(160)
   title: string;
 
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
   description: string;
 
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsOptional()
+  @MaxLength(255)
   address?: string;
 
   @IsLatitude()

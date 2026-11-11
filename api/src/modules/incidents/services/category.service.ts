@@ -103,6 +103,9 @@ export class CategoryService {
       ...(updateCategoryDto.isRisk !== undefined && {
         isRisk: updateCategoryDto.isRisk,
       }),
+      ...(updateCategoryDto.isActive !== undefined && {
+        isActive: updateCategoryDto.isActive,
+      }),
     };
     return this.repository.update(where, data);
   }
