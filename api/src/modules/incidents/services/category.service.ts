@@ -33,10 +33,9 @@ export class CategoryService {
 
   /**
    * Função que busca todas categorias.
-   * Se usuario autenticado for ADMIN retorna todos, senão, retorna somente os ativos
-   * @async
-   * @param {DecodedIdToken} user
-   * @returns {Promise<ReturnCategoryDto[]>}
+   * Se usuario autenticado for ADMIN retorna todos, senão, retorna somente os ativos.
+   * @param {DecodedIdToken} user utilizador autenticado
+   * @returns {Promise<ReturnCategoryDto[]>} categorias visíveis ao utilizador
    */
   async findAll(user: DecodedIdToken): Promise<ReturnCategoryDto[]> {
     const where = user.role === UserRole.ADMIN ? {} : { isActive: true };

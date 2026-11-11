@@ -11,6 +11,7 @@ import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.
 import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
 import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
+import { Paginated } from '@/src/common/types/pagination.types';
 import { CreateIncidentDto } from '../dto/create-incident.dto';
 import { IncidentsQueryDto } from '../dto/incidents-query.dto';
 import { ReturnIncidentDto } from '../dto/return-incident.dto';
@@ -81,25 +82,55 @@ export class IncidentsService {
   async findAll(
     query: IncidentsQueryDto,
     viewerId: string,
-  ): Promise<{
-    data: ReturnIncidentDto[];
-    page: number;
-    limit: number;
-    hasNextPage: boolean;
-  }> {
+  ): Promise<Paginated<ReturnIncidentDto>> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const incidents = await this.incidentsRepository.findMany(
+    const skip = (page - 1) * limit;
+    const hasLocationFilter =
+      query.lat !== undefined &&
+      query.lng !== undefined &&
+      query.radius !== undefined;
+
+    const rows = await this.incidentsRepository.searchIds(
       {
-        status: IncidentStatus.ACTIVE,
-        expiresAt: { gt: new Date() },
+        categoryId: query.categoryId,
+        search: query.search,
+        mine: query.mine,
+        viewerId,
+        latitude: query.lat,
+        longitude: query.lng,
+        radiusM: query.radius,
       },
-      (page - 1) * limit,
+      skip,
       limit + 1,
     );
-    const hasNextPage = incidents.length > limit;
-    const pageIncidents = incidents.slice(0, limit);
-    const data = await this.withCoordinates(pageIncidents, viewerId);
+
+    const hasNextPage = rows.length > limit;
+    const pageRows = rows.slice(0, limit);
+    const incidents = await this.incidentsRepository.findByIds(
+      pageRows.map((row) => row.id),
+    );
+    const incidentsById = new Map(
+      incidents.map((incident) => [incident.id, incident]),
+    );
+    const orderedIncidents = pageRows
+      .map((row) => incidentsById.get(row.id))
+      .filter((incident): incident is NonNullable<typeof incident> =>
+        Boolean(incident),
+      );
+
+    const distanceById = new Map(
+      pageRows
+        .filter((row) => row.distanceM !== undefined && row.distanceM !== null)
+        .map((row) => [row.id, row.distanceM ?? 0]),
+    );
+
+    const data = await this.withCoordinates(
+      orderedIncidents,
+      viewerId,
+      distanceById,
+      hasLocationFilter,
+    );
     return { data, page, limit, hasNextPage };
   }
 
@@ -179,6 +210,8 @@ export class IncidentsService {
   private async withCoordinates(
     incidents: Awaited<ReturnType<IncidentsRepository['findMany']>>,
     viewerId: string,
+    distanceById?: Map<string, number>,
+    includeDistance = false,
   ): Promise<ReturnIncidentDto[]> {
     const locations = await this.incidentsRepository.getCoordinates(
       incidents.map((incident) => incident.id),
@@ -207,7 +240,7 @@ export class IncidentsService {
         );
       }
 
-      return {
+      const dto: ReturnIncidentDto = {
         id: incident.id,
         authorId: incident.authorId,
         categoryId: incident.categoryId,
@@ -225,6 +258,12 @@ export class IncidentsService {
         longitude: location.longitude,
         myVote: voteMap.get(incident.id) ?? null,
       };
+
+      if (includeDistance && distanceById) {
+        dto.distanceM = distanceById.get(incident.id) ?? null;
+      }
+
+      return dto;
     });
   }
 }

@@ -1,17 +1,22 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Comment } from '@/generated/prisma';
+import { Prisma } from '@/generated/prisma';
+import type { Comment as PrismaComment } from '@/generated/prisma';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Tipo auxiliar com o autor do comentário já incluído.
  */
-export type CommentWithAuthor = Comment & {
-  user: {
-    id: string;
-    name: string;
-    avatarUrl: string | null;
+export type CommentWithAuthor = Prisma.CommentGetPayload<{
+  include: {
+    user: {
+      select: {
+        id: true;
+        name: true;
+        avatarUrl: true;
+      };
+    };
   };
-};
+}>;
 
 /**
  * Repositório responsável pela persistência dos comentários dos incidentes.
@@ -25,7 +30,7 @@ export class CommentRepository {
    * @param {string} commentId id do comentário
    * @returns {Promise<Comment | null>} comentário encontrado ou null
    */
-  async findById(commentId: string): Promise<Comment | null> {
+  async findById(commentId: string): Promise<PrismaComment | null> {
     return this.prismaService.comment.findUnique({
       where: { id: commentId },
     });
@@ -43,6 +48,20 @@ export class CommentRepository {
     parentId?: string;
   }): Promise<CommentWithAuthor> {
     return this.prismaService.$transaction(async (transaction) => {
+      if (data.parentId) {
+        const parentComment = await transaction.comment.findFirst({
+          where: {
+            id: data.parentId,
+            incidentId: data.incidentId,
+            isHidden: false,
+          },
+        });
+
+        if (!parentComment) {
+          throw new NotFoundException('Comentário não encontrado');
+        }
+      }
+
       const comment = await transaction.comment.create({
         data: {
           incidentId: data.incidentId,
@@ -68,7 +87,7 @@ export class CommentRepository {
         },
       });
 
-      return comment as CommentWithAuthor;
+      return comment;
     });
   }
 
@@ -102,7 +121,7 @@ export class CommentRepository {
           },
         },
       },
-    }) as Promise<CommentWithAuthor[]>;
+    });
   }
 
   /**
@@ -132,7 +151,7 @@ export class CommentRepository {
           },
         },
       },
-    }) as Promise<CommentWithAuthor[]>;
+    });
   }
 
   /**

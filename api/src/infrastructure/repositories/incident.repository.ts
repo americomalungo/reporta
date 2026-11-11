@@ -19,9 +19,97 @@ export interface IncidentCoordinates {
   longitude: number;
 }
 
+export interface IncidentSearchRow {
+  id: string;
+  distanceM?: number | null;
+}
+
 @Injectable()
 export class IncidentsRepository {
   constructor(private readonly prismaService: PrismaService) {}
+
+  async searchIds(
+    filters: {
+      categoryId?: string;
+      search?: string;
+      mine?: boolean;
+      viewerId?: string;
+      latitude?: number;
+      longitude?: number;
+      radiusM?: number;
+    },
+    skip: number,
+    take: number,
+  ): Promise<IncidentSearchRow[]> {
+    const clauses: Prisma.Sql[] = [];
+
+    const isMineMode = Boolean(filters.mine && filters.viewerId);
+
+    if (isMineMode) {
+      clauses.push(
+        Prisma.sql`WHERE i."authorId" = ${filters.viewerId} AND i.status != 'DELETED'`,
+      );
+    } else {
+      clauses.push(
+        Prisma.sql`WHERE i.status = 'ACTIVE' AND i."expiresAt" > now() AND i.status NOT IN ('REMOVED', 'DELETED')`,
+      );
+    }
+
+    if (filters.categoryId) {
+      clauses.push(Prisma.sql`AND i."categoryId" = ${filters.categoryId}`);
+    }
+
+    if (filters.search && filters.search.trim().length > 0) {
+      const pattern = `%${filters.search
+        .trim()
+        .replace(/\\/g, '\\\\')
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_')}%`;
+      clauses.push(
+        Prisma.sql`AND (
+          i.title ILIKE ${pattern} ESCAPE '\\' OR
+          i.description ILIKE ${pattern} ESCAPE '\\'
+        )`,
+      );
+    }
+
+    if (
+      filters.latitude !== undefined &&
+      filters.longitude !== undefined &&
+      filters.radiusM !== undefined
+    ) {
+      clauses.push(
+        Prisma.sql`AND ST_DWithin(
+          i.location,
+          ST_SetSRID(ST_MakePoint(${filters.longitude}::float8, ${filters.latitude}::float8), 4326)::geography,
+          ${filters.radiusM}
+        )`,
+      );
+    }
+
+    const selectDistance =
+      filters.latitude !== undefined &&
+      filters.longitude !== undefined &&
+      filters.radiusM !== undefined
+        ? Prisma.sql`, ST_Distance(
+            i.location,
+            ST_SetSRID(ST_MakePoint(${filters.longitude}::float8, ${filters.latitude}::float8), 4326)::geography
+          ) AS "distanceM"`
+        : Prisma.sql``;
+
+    const whereClause = Prisma.join(clauses, ' ');
+    const query = Prisma.sql`
+      SELECT i.id ${selectDistance}
+      FROM incidents i
+      ${whereClause}
+      ORDER BY i."createdAt" DESC
+      LIMIT ${take}
+      OFFSET ${skip}
+    `;
+
+    const rows = await this.prismaService.$queryRaw<IncidentSearchRow[]>(query);
+    return rows;
+  }
 
   async createWithLocation(data: CreateIncidentData): Promise<string> {
     const id = randomUUID();
@@ -70,6 +158,19 @@ export class IncidentsRepository {
       orderBy: { createdAt: 'desc' },
       skip,
       take,
+    });
+  }
+
+  async findByIds(ids: string[]): Promise<Incident[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    return this.prismaService.incident.findMany({
+      where: {
+        id: { in: ids },
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 

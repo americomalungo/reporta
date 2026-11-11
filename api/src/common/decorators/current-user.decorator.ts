@@ -14,7 +14,7 @@ export type AuthenticatedRequest = Request & {
 
 /**
  * Decorator que devolve o utilizador autenticado em formato Firebase.
- * @param {keyof DecodedIdToken | undefined} field campo específico do token
+ * Pode receber um campo opcional do payload do Firebase.
  * @returns {DecodedIdToken | string | undefined}
  */
 export const CurrentUser = createParamDecorator(

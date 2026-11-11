@@ -12,6 +12,7 @@ import {
 } from '@/src/infrastructure/repositories/comment.repository';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { UserRole } from '@/src/common/enums/users.enums';
+import { Paginated } from '@/src/common/types/pagination.types';
 import { CommentsQueryDto } from '../dto/comments-query.dto';
 import { CreateCommentDto } from '../dto/create-comment.dto';
 import { ReturnCommentDto } from '../dto/return-comment.dto';
@@ -93,12 +94,7 @@ export class CommentsService {
   async findAll(
     incidentId: string,
     query: CommentsQueryDto,
-  ): Promise<{
-    data: ReturnCommentDto[];
-    page: number;
-    limit: number;
-    hasNextPage: boolean;
-  }> {
+  ): Promise<Paginated<ReturnCommentDto>> {
     const incident = await this.incidentsRepository.findUnique({
       id: incidentId,
     });

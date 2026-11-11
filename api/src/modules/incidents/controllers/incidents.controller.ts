@@ -20,6 +20,7 @@ import { IncidentsService } from '../services/incidents.service';
 
 /**
  * Controller responsável pela gestão de incidentes.
+ * Expõe as rotas públicas e autenticadas do feed, detalhe e remoção de incidentes.
  */
 @Controller('incidents')
 export class IncidentsController {
@@ -27,6 +28,7 @@ export class IncidentsController {
 
   /**
    * Cria um novo incidente.
+   * Método HTTP: POST /incidents
    * @param {CreateIncidentDto} createIncidentDto dados do incidente
    * @param {DecodedIdToken} currentUser utilizador autenticado do Firebase
    * @returns {Promise<ReturnIncidentDto>} incidente criado
@@ -41,9 +43,10 @@ export class IncidentsController {
 
   /**
    * Lista incidentes ativos paginados.
-   * @param {IncidentsQueryDto} query parâmetros de paginação
+   * Método HTTP: GET /incidents
+   * @param {IncidentsQueryDto} query parâmetros de paginação e filtros do feed
    * @param {User} dbUser utilizador autenticado carregado da base de dados
-   * @returns {Promise<{ data: ReturnIncidentDto[]; page: number; limit: number; hasNextPage: boolean }>} lista paginada de incidentes
+   * @returns {Promise<Paginated<ReturnIncidentDto>>} lista paginada de incidentes
    */
   @Get()
   findAll(@Query() query: IncidentsQueryDto, @CurrentDbUser() dbUser: User) {
@@ -52,6 +55,7 @@ export class IncidentsController {
 
   /**
    * Lê um incidente específico.
+   * Método HTTP: GET /incidents/:id
    * @param {string} id id do incidente
    * @param {User} dbUser utilizador autenticado carregado da base de dados
    * @returns {Promise<ReturnIncidentDto>} incidente detalhado
