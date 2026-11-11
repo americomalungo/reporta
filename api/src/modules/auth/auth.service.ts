@@ -15,7 +15,7 @@ export class AuthService implements OnModuleInit {
    * @returns {Promise<void>} resolução da inicialização
    */
   async onModuleInit(): Promise<void> {
-    await this.auth.listUsers(1);
+    //await this.auth.listUsers(1);
   }
 
   /**
