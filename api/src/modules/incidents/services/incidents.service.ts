@@ -1,11 +1,12 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import type { DecodedIdToken } from 'firebase-admin/auth';
-import { IncidentStatus } from '@/generated/prisma';
+import { Incident, IncidentStatus } from '@/generated/prisma';
 import { CategoryRepository } from '@/src/infrastructure/repositories/category.repository';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
@@ -83,13 +84,27 @@ export class IncidentsService {
     query: IncidentsQueryDto,
     viewerId: string,
   ): Promise<Paginated<ReturnIncidentDto>> {
+    const hasLat = query.lat !== undefined;
+    const hasLng = query.lng !== undefined;
+    const hasRadius = query.radius !== undefined;
+
+    if (hasLat !== hasLng) {
+      throw new BadRequestException(
+        'Latitude e longitude devem ser informadas em conjunto',
+      );
+    }
+
+    if (hasRadius && !hasLat && !hasLng) {
+      throw new BadRequestException(
+        'O raio só pode ser usado com latitude e longitude',
+      );
+    }
+
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
-    const hasLocationFilter =
-      query.lat !== undefined &&
-      query.lng !== undefined &&
-      query.radius !== undefined;
+    const hasLocationFilter = hasLat && hasLng;
+    const radiusM = hasLocationFilter ? (query.radius ?? 1000) : undefined;
 
     const rows = await this.incidentsRepository.searchIds(
       {
@@ -99,7 +114,7 @@ export class IncidentsService {
         viewerId,
         latitude: query.lat,
         longitude: query.lng,
-        radiusM: query.radius,
+        radiusM,
       },
       skip,
       limit + 1,
@@ -129,7 +144,6 @@ export class IncidentsService {
       orderedIncidents,
       viewerId,
       distanceById,
-      hasLocationFilter,
     );
     return { data, page, limit, hasNextPage };
   }
@@ -208,10 +222,9 @@ export class IncidentsService {
    * @throws {InternalServerErrorException} se a localização não puder ser obtida
    */
   private async withCoordinates(
-    incidents: Awaited<ReturnType<IncidentsRepository['findMany']>>,
+    incidents: Incident[],
     viewerId: string,
     distanceById?: Map<string, number>,
-    includeDistance = false,
   ): Promise<ReturnIncidentDto[]> {
     const locations = await this.incidentsRepository.getCoordinates(
       incidents.map((incident) => incident.id),
@@ -240,7 +253,7 @@ export class IncidentsService {
         );
       }
 
-      const dto: ReturnIncidentDto = {
+      return {
         id: incident.id,
         authorId: incident.authorId,
         categoryId: incident.categoryId,
@@ -256,14 +269,9 @@ export class IncidentsService {
         updatedAt: incident.updatedAt,
         latitude: location.latitude,
         longitude: location.longitude,
+        distanceM: distanceById?.get(incident.id) ?? null,
         myVote: voteMap.get(incident.id) ?? null,
       };
-
-      if (includeDistance && distanceById) {
-        dto.distanceM = distanceById.get(incident.id) ?? null;
-      }
-
-      return dto;
     });
   }
 }

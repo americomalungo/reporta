@@ -16,6 +16,6 @@ export class ReturnIncidentDto {
   updatedAt: Date;
   latitude: number;
   longitude: number;
-  distanceM?: number | null;
+  distanceM: number | null;
   myVote: VoteTypeEnum | null;
 }

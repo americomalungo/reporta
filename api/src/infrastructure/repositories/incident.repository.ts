@@ -73,36 +73,38 @@ export class IncidentsRepository {
       );
     }
 
-    if (
+    const hasLocationFilter =
       filters.latitude !== undefined &&
       filters.longitude !== undefined &&
-      filters.radiusM !== undefined
-    ) {
+      filters.radiusM !== undefined;
+
+    if (hasLocationFilter) {
       clauses.push(
         Prisma.sql`AND ST_DWithin(
           i.location,
           ST_SetSRID(ST_MakePoint(${filters.longitude}::float8, ${filters.latitude}::float8), 4326)::geography,
-          ${filters.radiusM}
+          ${filters.radiusM}::float8
         )`,
       );
     }
 
-    const selectDistance =
-      filters.latitude !== undefined &&
-      filters.longitude !== undefined &&
-      filters.radiusM !== undefined
-        ? Prisma.sql`, ST_Distance(
+    const selectDistance = hasLocationFilter
+      ? Prisma.sql`, ST_Distance(
             i.location,
             ST_SetSRID(ST_MakePoint(${filters.longitude}::float8, ${filters.latitude}::float8), 4326)::geography
           ) AS "distanceM"`
-        : Prisma.sql``;
+      : Prisma.sql``;
+
+    const orderBy = hasLocationFilter
+      ? Prisma.sql`ORDER BY "distanceM" ASC, i."createdAt" DESC, i.id DESC`
+      : Prisma.sql`ORDER BY i."createdAt" DESC, i.id DESC`;
 
     const whereClause = Prisma.join(clauses, ' ');
     const query = Prisma.sql`
       SELECT i.id ${selectDistance}
       FROM incidents i
       ${whereClause}
-      ORDER BY i."createdAt" DESC
+      ${orderBy}
       LIMIT ${take}
       OFFSET ${skip}
     `;
