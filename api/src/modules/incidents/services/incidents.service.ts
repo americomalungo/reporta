@@ -15,6 +15,9 @@ import { CreateIncidentDto } from '../dto/create-incident.dto';
 import { IncidentsQueryDto } from '../dto/incidents-query.dto';
 import { ReturnIncidentDto } from '../dto/return-incident.dto';
 
+/**
+ * Serviço responsável pela gestão dos incidentes.
+ */
 @Injectable()
 export class IncidentsService {
   constructor(
@@ -24,6 +27,14 @@ export class IncidentsService {
     private readonly voteRepository: VoteRepository,
   ) {}
 
+  /**
+   * Cria um novo incidente para o utilizador autenticado.
+   * @param {CreateIncidentDto} dto dados do incidente
+   * @param {DecodedIdToken} currentUser utilizador autenticado do Firebase
+   * @returns {Promise<ReturnIncidentDto>} incidente criado com coordenadas e estado atual
+   * @throws {ForbiddenException} se o utilizador não estiver ativo ou estiver bloqueado
+   * @throws {NotFoundException} se a categoria não existir ou estiver inativa
+   */
   async create(
     dto: CreateIncidentDto,
     currentUser: DecodedIdToken,
@@ -61,6 +72,12 @@ export class IncidentsService {
     return this.findOne(id, author.id, currentUser.role === UserRole.ADMIN);
   }
 
+  /**
+   * Lista incidentes ativos para um utilizador autenticado.
+   * @param {IncidentsQueryDto} query parâmetros de paginação e filtros
+   * @param {string} viewerId id do utilizador autenticado
+   * @returns {Promise<{ data: ReturnIncidentDto[]; page: number; limit: number; hasNextPage: boolean }>} incidentes paginados
+   */
   async findAll(
     query: IncidentsQueryDto,
     viewerId: string,
@@ -86,10 +103,18 @@ export class IncidentsService {
     return { data, page, limit, hasNextPage };
   }
 
+  /**
+   * Busca um incidente pelo id e inclui o voto do utilizador atual.
+   * @param {string} id id do incidente
+   * @param {string} viewerId id do utilizador autenticado
+   * @param {boolean} isAdmin indica se a consulta é feita por admin
+   * @returns {Promise<ReturnIncidentDto>} incidente detalhado com coordenadas e voto atual
+   * @throws {NotFoundException} se o incidente não existir ou estiver removido
+   */
   async findOne(
     id: string,
     viewerId: string,
-    isAdmin = false,
+    isAdmin: boolean,
   ): Promise<ReturnIncidentDto> {
     const incident = isAdmin
       ? await this.incidentsRepository.findUnique({ id })
@@ -104,6 +129,14 @@ export class IncidentsService {
     return result;
   }
 
+  /**
+   * Remove um incidente como soft-delete.
+   * @param {string} id id do incidente
+   * @param {DecodedIdToken} currentUser utilizador autenticado do Firebase
+   * @returns {Promise<{ message: string }>} mensagem de confirmação
+   * @throws {NotFoundException} se o incidente não existir
+   * @throws {ForbiddenException} se o utilizador não tiver permissão
+   */
   async remove(
     id: string,
     currentUser: DecodedIdToken,
@@ -136,6 +169,13 @@ export class IncidentsService {
     return { message: 'Incidente removido com sucesso' };
   }
 
+  /**
+   * Completa cada incidente com coordenadas e o voto do utilizador atual.
+   * @param {Awaited<ReturnType<IncidentsRepository['findMany']>>} incidents incidentes base
+   * @param {string} viewerId id do utilizador autenticado
+   * @returns {Promise<ReturnIncidentDto[]>} incidentes enriquecidos com coordenadas e voto
+   * @throws {InternalServerErrorException} se a localização não puder ser obtida
+   */
   private async withCoordinates(
     incidents: Awaited<ReturnType<IncidentsRepository['findMany']>>,
     viewerId: string,

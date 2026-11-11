@@ -10,6 +10,9 @@ import { VoteRepository } from '@/src/infrastructure/repositories/vote.repositor
 import { VoteIncidentDto } from '../dto/vote-incident.dto';
 import { ReturnVoteDto } from '../dto/return-vote.dto';
 
+/**
+ * Serviço responsável pela gestão de votos nos incidentes.
+ */
 @Injectable()
 export class VotesService {
   constructor(
@@ -17,6 +20,16 @@ export class VotesService {
     private readonly voteRepository: VoteRepository,
   ) {}
 
+  /**
+   * Regista ou altera o voto do utilizador num incidente.
+   * @param {string} incidentId id do incidente
+   * @param {User} user utilizador autenticado
+   * @param {VoteIncidentDto} dto tipo de voto a aplicar
+   * @returns {Promise<ReturnVoteDto>} resumo do estado final do voto e contadores
+   * @throws {NotFoundException} se o incidente não existir ou estiver removido
+   * @throws {ForbiddenException} se o utilizador tentar votar no seu próprio incidente
+   * @throws {ConflictException} se o incidente estiver expirado ou indisponível para votação
+   */
   async vote(
     incidentId: string,
     user: User,
@@ -66,6 +79,13 @@ export class VotesService {
     };
   }
 
+  /**
+   * Remove o voto do utilizador num incidente.
+   * @param {string} incidentId id do incidente
+   * @param {User} user utilizador autenticado
+   * @returns {Promise<ReturnVoteDto>} resumo do estado final do voto e contadores
+   * @throws {NotFoundException} se o incidente não existir ou o utilizador ainda não tiver votado
+   */
   async removeVote(incidentId: string, user: User): Promise<ReturnVoteDto> {
     const incident = await this.incidentsRepository.findUnique({
       id: incidentId,
