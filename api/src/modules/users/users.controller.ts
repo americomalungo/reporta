@@ -15,6 +15,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { CurrentUser } from '@/src/common/decorators/current-user.decorator';
 import { AllowUnregistered } from '@/src/common/decorators/allow-unregistered.decorator';
 import type { DecodedIdToken } from 'firebase-admin/auth';
+import { Public } from '@/src/common/decorators/public.decorator';
 
 @Controller('users')
 export class UsersController {
