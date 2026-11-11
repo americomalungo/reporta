@@ -125,10 +125,13 @@ export class CommentsService {
     const repliesByParent = new Map<string, CommentWithAuthor[]>();
 
     replies.forEach((reply) => {
-      const parentId = reply.parentId ?? '';
-      const currentReplies = repliesByParent.get(parentId) ?? [];
+      if (!reply.parentId) {
+        return;
+      }
+
+      const currentReplies = repliesByParent.get(reply.parentId) ?? [];
       currentReplies.push(reply);
-      repliesByParent.set(parentId, currentReplies);
+      repliesByParent.set(reply.parentId, currentReplies);
     });
 
     const data = commentsPage.map((comment) =>
@@ -169,7 +172,7 @@ export class CommentsService {
     }
 
     const comment = await this.commentRepository.findById(commentId);
-    if (!comment || comment.incidentId !== incidentId) {
+    if (!comment || comment.incidentId !== incidentId || comment.isHidden) {
       throw new NotFoundException('Comentário não encontrado');
     }
 

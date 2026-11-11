@@ -83,7 +83,10 @@ export class CategoryService {
     };
   }
 
-  async update(where: { id: string }, updateCategoryDto: UpdateCategoryDto) {
+  async update(
+    where: { id: string },
+    updateCategoryDto: UpdateCategoryDto,
+  ): Promise<ReturnCategoryDto> {
     const name =
       updateCategoryDto.name === undefined
         ? undefined

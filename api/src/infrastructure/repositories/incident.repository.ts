@@ -3,31 +3,86 @@ import { Incident, Prisma } from '@/generated/prisma';
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
+/**
+ * Dados necessários para criar um incidente com geolocalização.
+ */
 export interface CreateIncidentData {
+  /**
+   * Identificador do autor do incidente.
+   */
   authorId: string;
+  /**
+   * Identificador da categoria do incidente.
+   */
   categoryId: string;
+  /**
+   * Título do incidente.
+   */
   title: string;
+  /**
+   * Descrição detalhada do incidente.
+   */
   description: string;
+  /**
+   * Endereço textual opcional do incidente.
+   */
   address?: string;
+  /**
+   * Latitude da localização do incidente.
+   */
   latitude: number;
+  /**
+   * Longitude da localização do incidente.
+   */
   longitude: number;
 }
 
+/**
+ * Coordenadas geográficas de um incidente.
+ */
 export interface IncidentCoordinates {
+  /**
+   * Identificador do incidente.
+   */
   id: string;
+  /**
+   * Latitude em graus.
+   */
   latitude: number;
+  /**
+   * Longitude em graus.
+   */
   longitude: number;
 }
 
+/**
+ * Resultado bruto de pesquisa de incidentes com distância opcional.
+ */
 export interface IncidentSearchRow {
+  /**
+   * Identificador do incidente.
+   */
   id: string;
+  /**
+   * Distância em metros até o ponto de referência, quando aplicável.
+   */
   distanceM?: number | null;
 }
 
+/**
+ * Repositório responsável por operações de leitura e escrita dos incidentes.
+ */
 @Injectable()
 export class IncidentsRepository {
   constructor(private readonly prismaService: PrismaService) {}
 
+  /**
+   * Pesquisa os ids de incidentes aplicando filtros de categoria, texto, autoria e proximidade.
+   * @param {{ categoryId?: string; search?: string; mine?: boolean; viewerId?: string; latitude?: number; longitude?: number; radiusM?: number; }} filters filtros da consulta
+   * @param {number} skip quantidade de registros a ignorar
+   * @param {number} take quantidade máxima de registros a devolver
+   * @returns {Promise<IncidentSearchRow[]>} ids dos incidentes com distância calculada quando aplicável
+   */
   async searchIds(
     filters: {
       categoryId?: string;
@@ -113,6 +168,11 @@ export class IncidentsRepository {
     return rows;
   }
 
+  /**
+   * Cria um incidente e persiste a sua localização em PostGIS.
+   * @param {CreateIncidentData} data dados do incidente e da geolocalização
+   * @returns {Promise<string>} identificador do incidente criado
+   */
   async createWithLocation(data: CreateIncidentData): Promise<string> {
     const id = randomUUID();
     await this.prismaService.$executeRaw`
@@ -144,25 +204,22 @@ export class IncidentsRepository {
     return id;
   }
 
+  /**
+   * Cria um registo de mídia associado a um incidente.
+   * @param {Prisma.IncidentMediaCreateInput} data payload de criação de mídia
+   * @returns {Promise<Prisma.IncidentMedia>} registo criado
+   */
   async createIncidentMidia(data: Prisma.IncidentMediaCreateInput) {
     return await this.prismaService.incidentMedia.create({
       data,
     });
   }
 
-  async findMany(
-    where: Prisma.IncidentWhereInput,
-    skip: number,
-    take: number,
-  ): Promise<Incident[]> {
-    return await this.prismaService.incident.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take,
-    });
-  }
-
+  /**
+   * Busca vários incidentes pelos ids informados.
+   * @param {string[]} ids identificadores dos incidentes
+   * @returns {Promise<Incident[]>} incidentes encontrados na ordem do banco
+   */
   async findByIds(ids: string[]): Promise<Incident[]> {
     if (ids.length === 0) {
       return [];
@@ -176,16 +233,31 @@ export class IncidentsRepository {
     });
   }
 
+  /**
+   * Busca o primeiro incidente que satisfaz o critério informado.
+   * @param {Prisma.IncidentWhereInput} where filtro de busca
+   * @returns {Promise<Incident | null>} incidente encontrado ou nulo
+   */
   async findFirst(where: Prisma.IncidentWhereInput): Promise<Incident | null> {
     return this.prismaService.incident.findFirst({ where });
   }
 
+  /**
+   * Busca um incidente por chave única.
+   * @param {Prisma.IncidentWhereUniqueInput} where critério único
+   * @returns {Promise<Incident | null>} incidente encontrado ou nulo
+   */
   async findUnique(
     where: Prisma.IncidentWhereUniqueInput,
   ): Promise<Incident | null> {
     return this.prismaService.incident.findUnique({ where });
   }
 
+  /**
+   * Obtém as coordenadas geográficas dos incidentes informados.
+   * @param {string[]} ids identificadores dos incidentes
+   * @returns {Promise<IncidentCoordinates[]>} coordenadas extraídas da geolocalização
+   */
   async getCoordinates(ids: string[]): Promise<IncidentCoordinates[]> {
     if (ids.length === 0) return [];
 
@@ -199,10 +271,16 @@ export class IncidentsRepository {
     `;
   }
 
+  /**
+   * Atualiza um incidente.
+   * @param {Prisma.IncidentWhereUniqueInput} where critério de identificação
+   * @param {Prisma.IncidentUpdateInput} data campos a atualizar
+   * @returns {Promise<Incident>} incidente atualizado
+   */
   async update(
     where: Prisma.IncidentWhereUniqueInput,
     data: Prisma.IncidentUpdateInput,
-  ) {
+  ): Promise<Incident> {
     return await this.prismaService.incident.update({
       where,
       data,

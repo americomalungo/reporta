@@ -76,9 +76,9 @@ export class IncidentsService {
 
   /**
    * Lista incidentes ativos para um utilizador autenticado.
-   * @param {IncidentsQueryDto} query parâmetros de paginação e filtros
+   * @param {IncidentsQueryDto} query parâmetros de paginação e filtros (categoria, texto, propriedade do autor, latitude/longitude com raio opcional)
    * @param {string} viewerId id do utilizador autenticado
-   * @returns {Promise<{ data: ReturnIncidentDto[]; page: number; limit: number; hasNextPage: boolean }>} incidentes paginados
+   * @returns {Promise<Paginated<ReturnIncidentDto>>} incidentes paginados com distância e voto do utilizador quando aplicável
    */
   async findAll(
     query: IncidentsQueryDto,

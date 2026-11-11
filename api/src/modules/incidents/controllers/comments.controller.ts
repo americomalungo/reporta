@@ -9,8 +9,10 @@ import {
 } from '@nestjs/common';
 import type { User } from '@/generated/prisma';
 import { CurrentDbUser } from '@/src/common/decorators/current-user.decorator';
+import { Paginated } from '@/src/common/types/pagination.types';
 import { CommentsQueryDto } from '../dto/comments-query.dto';
 import { CreateCommentDto } from '../dto/create-comment.dto';
+import { ReturnCommentDto } from '../dto/return-comment.dto';
 import { CommentsService } from '../services/comments.service';
 
 /**
@@ -32,7 +34,7 @@ export class CommentsController {
     @Param('incidentId') incidentId: string,
     @Body() dto: CreateCommentDto,
     @CurrentDbUser() user: User,
-  ) {
+  ): Promise<ReturnCommentDto> {
     return this.commentsService.create(incidentId, user, dto);
   }
 
@@ -46,7 +48,7 @@ export class CommentsController {
   findAll(
     @Param('incidentId') incidentId: string,
     @Query() query: CommentsQueryDto,
-  ) {
+  ): Promise<Paginated<ReturnCommentDto>> {
     return this.commentsService.findAll(incidentId, query);
   }
 
@@ -62,7 +64,7 @@ export class CommentsController {
     @Param('incidentId') incidentId: string,
     @Param('commentId') commentId: string,
     @CurrentDbUser() user: User,
-  ) {
+  ): Promise<{ message: string }> {
     return this.commentsService.remove(incidentId, commentId, user);
   }
 }

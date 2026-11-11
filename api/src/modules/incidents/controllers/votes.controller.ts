@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Param, Put } from '@nestjs/common';
 import type { User } from '@/generated/prisma';
 import { CurrentDbUser } from '@/src/common/decorators/current-user.decorator';
 import { VoteIncidentDto } from '../dto/vote-incident.dto';
+import { ReturnVoteDto } from '../dto/return-vote.dto';
 import { VotesService } from '../services/votes.service';
 
 /**
@@ -24,7 +25,7 @@ export class VotesController {
     @Param('incidentId') incidentId: string,
     @Body() dto: VoteIncidentDto,
     @CurrentDbUser() user: User,
-  ) {
+  ): Promise<ReturnVoteDto> {
     return this.votesService.vote(incidentId, user, dto);
   }
 
@@ -39,7 +40,7 @@ export class VotesController {
   removeVote(
     @Param('incidentId') incidentId: string,
     @CurrentDbUser() user: User,
-  ) {
+  ): Promise<ReturnVoteDto> {
     return this.votesService.removeVote(incidentId, user);
   }
 }

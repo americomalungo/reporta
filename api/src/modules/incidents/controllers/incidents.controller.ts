@@ -14,8 +14,10 @@ import {
   CurrentUser,
 } from '@/src/common/decorators/current-user.decorator';
 import { UserRole } from '@/src/common/enums/users.enums';
+import { Paginated } from '@/src/common/types/pagination.types';
 import { CreateIncidentDto } from '../dto/create-incident.dto';
 import { IncidentsQueryDto } from '../dto/incidents-query.dto';
+import { ReturnIncidentDto } from '../dto/return-incident.dto';
 import { IncidentsService } from '../services/incidents.service';
 
 /**
@@ -37,7 +39,7 @@ export class IncidentsController {
   create(
     @Body() createIncidentDto: CreateIncidentDto,
     @CurrentUser() currentUser: DecodedIdToken,
-  ) {
+  ): Promise<ReturnIncidentDto> {
     return this.incidentsService.create(createIncidentDto, currentUser);
   }
 
@@ -49,7 +51,10 @@ export class IncidentsController {
    * @returns {Promise<Paginated<ReturnIncidentDto>>} lista paginada de incidentes
    */
   @Get()
-  findAll(@Query() query: IncidentsQueryDto, @CurrentDbUser() dbUser: User) {
+  findAll(
+    @Query() query: IncidentsQueryDto,
+    @CurrentDbUser() dbUser: User,
+  ): Promise<Paginated<ReturnIncidentDto>> {
     return this.incidentsService.findAll(query, dbUser.id);
   }
 
@@ -61,7 +66,10 @@ export class IncidentsController {
    * @returns {Promise<ReturnIncidentDto>} incidente detalhado
    */
   @Get(':id')
-  findOne(@Param('id') id: string, @CurrentDbUser() dbUser: User) {
+  findOne(
+    @Param('id') id: string,
+    @CurrentDbUser() dbUser: User,
+  ): Promise<ReturnIncidentDto> {
     return this.incidentsService.findOne(
       id,
       dbUser.id,
@@ -76,7 +84,10 @@ export class IncidentsController {
    * @returns {Promise<{ message: string }>} mensagem de confirmação
    */
   @Delete(':id')
-  remove(@Param('id') id: string, @CurrentUser() currentUser: DecodedIdToken) {
+  remove(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: DecodedIdToken,
+  ): Promise<{ message: string }> {
     return this.incidentsService.remove(id, currentUser);
   }
 }

@@ -2,20 +2,32 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 
+/**
+ * DTO de query para a listagem do feed de incidentes.
+ */
 export class IncidentsQueryDto {
+  /**
+   * Número da página de resultados a devolver.
+   */
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @IsOptional()
   page?: number;
 
+  /**
+   * Número máximo de incidentes por página.
+   */
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -23,19 +35,35 @@ export class IncidentsQueryDto {
   @IsOptional()
   limit?: number;
 
+  /**
+   * Identificador da categoria para filtrar os incidentes.
+   */
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
   categoryId?: string;
 
+  /**
+   * Texto livre para pesquisar no título ou na descrição do incidente.
+   */
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsOptional()
   @IsString()
+  @MinLength(2)
+  @MaxLength(100)
   search?: string;
 
+  /**
+   * Indica se o feed deve devolver apenas os incidentes do utilizador autenticado.
+   */
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   @IsOptional()
   mine?: boolean;
 
+  /**
+   * Latitude do ponto de referência para o filtro por proximidade.
+   */
   @Type(() => Number)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(-90)
@@ -43,6 +71,9 @@ export class IncidentsQueryDto {
   @IsOptional()
   lat?: number;
 
+  /**
+   * Longitude do ponto de referência para o filtro por proximidade.
+   */
   @Type(() => Number)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(-180)
@@ -50,9 +81,13 @@ export class IncidentsQueryDto {
   @IsOptional()
   lng?: number;
 
+  /**
+   * Raio em metros para filtrar incidentes por proximidade.
+   */
   @Type(() => Number)
-  @IsNumber({ allowNaN: false, allowInfinity: false })
-  @Min(0)
+  @IsInt()
+  @Min(100)
+  @Max(10000)
   @IsOptional()
   radius?: number;
 }
