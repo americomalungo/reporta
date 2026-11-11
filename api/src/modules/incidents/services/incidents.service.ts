@@ -63,8 +63,7 @@ export class IncidentsService {
 
   async findAll(
     query: IncidentsQueryDto,
-    viewerId?: string,
-    _isAdmin = false,
+    viewerId: string,
   ): Promise<{
     data: ReturnIncidentDto[];
     page: number;
@@ -89,7 +88,7 @@ export class IncidentsService {
 
   async findOne(
     id: string,
-    viewerId?: string,
+    viewerId: string,
     isAdmin = false,
   ): Promise<ReturnIncidentDto> {
     const incident = isAdmin
@@ -139,7 +138,7 @@ export class IncidentsService {
 
   private async withCoordinates(
     incidents: Awaited<ReturnType<IncidentsRepository['findMany']>>,
-    viewerId?: string,
+    viewerId: string,
   ): Promise<ReturnIncidentDto[]> {
     const locations = await this.incidentsRepository.getCoordinates(
       incidents.map((incident) => incident.id),

@@ -31,28 +31,16 @@ export class IncidentsController {
   }
 
   @Get()
-  findAll(
-    @Query() query: IncidentsQueryDto,
-    @CurrentUser() currentUser: DecodedIdToken,
-    @CurrentDbUser() dbUser: User,
-  ) {
-    return this.incidentsService.findAll(
-      query,
-      dbUser.id,
-      currentUser.role === UserRole.ADMIN,
-    );
+  findAll(@Query() query: IncidentsQueryDto, @CurrentDbUser() dbUser: User) {
+    return this.incidentsService.findAll(query, dbUser.id);
   }
 
   @Get(':id')
-  findOne(
-    @Param('id') id: string,
-    @CurrentUser() currentUser: DecodedIdToken,
-    @CurrentDbUser() dbUser: User,
-  ) {
+  findOne(@Param('id') id: string, @CurrentDbUser() dbUser: User) {
     return this.incidentsService.findOne(
       id,
       dbUser.id,
-      currentUser.role === UserRole.ADMIN,
+      dbUser.role === UserRole.ADMIN,
     );
   }
 

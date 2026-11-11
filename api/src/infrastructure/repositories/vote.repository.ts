@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, Vote, VoteType } from '@/generated/prisma';
+import { isPrismaError } from '@/src/common/utils/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -160,17 +161,20 @@ export class VoteRepository {
           updateData.disconfirmCount = { increment: 1 };
         }
 
-        await tx.vote.update({
+        const updatedVote = await tx.vote.updateMany({
           where: {
-            incidentId_userId: {
-              incidentId,
-              userId,
-            },
+            incidentId,
+            userId,
+            type: existingVote.type,
           },
           data: {
             type,
           },
         });
+
+        if (updatedVote.count === 0) {
+          throw new ConflictException('Voto em processamento, tente novamente');
+        }
 
         const updatedIncident = await tx.incident.update({
           where: { id: incidentId },
@@ -188,7 +192,7 @@ export class VoteRepository {
         };
       });
     } catch (error) {
-      if (this.isPrismaError(error, 'P2002')) {
+      if (isPrismaError(error, 'P2002')) {
         throw new ConflictException('Voto em processamento, tente novamente');
       }
       throw error;
@@ -217,14 +221,17 @@ export class VoteRepository {
         throw new NotFoundException('Ainda não votou neste incidente');
       }
 
-      await tx.vote.delete({
+      const deletedVote = await tx.vote.deleteMany({
         where: {
-          incidentId_userId: {
-            incidentId,
-            userId,
-          },
+          incidentId,
+          userId,
+          type: existingVote.type,
         },
       });
+
+      if (deletedVote.count === 0) {
+        throw new ConflictException('Voto em processamento, tente novamente');
+      }
 
       const updateData: Prisma.IncidentUpdateInput =
         existingVote.type === VoteType.CONFIRM
@@ -250,20 +257,5 @@ export class VoteRepository {
         disconfirmCount: updatedIncident.disconfirmCount,
       };
     });
-  }
-
-  /**
-   * Verifica se um erro Prisma tem um código específico.
-   * @param {unknown} error objeto de erro
-   * @param {string} code código Prisma a comparar
-   * @returns {boolean} true se o erro corresponder ao código
-   */
-  private isPrismaError(error: unknown, code: string): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      error.code === code
-    );
   }
 }

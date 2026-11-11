@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { isPrismaError } from '@/src/common/utils/prisma-errors';
 
 @Injectable()
 export class CategoryRepository {
@@ -14,7 +15,7 @@ export class CategoryRepository {
     try {
       return await this.prismaService.category.create({ data });
     } catch (error) {
-      if (this.isPrismaError(error, 'P2002')) {
+      if (isPrismaError(error, 'P2002')) {
         throw new ConflictException('Já existe uma categoria com este slug');
       }
       throw error;
@@ -45,22 +46,13 @@ export class CategoryRepository {
     try {
       return await this.prismaService.category.update({ where, data });
     } catch (error) {
-      if (this.isPrismaError(error, 'P2002')) {
+      if (isPrismaError(error, 'P2002')) {
         throw new ConflictException('Já existe uma categoria com este slug');
       }
-      if (this.isPrismaError(error, 'P2025')) {
+      if (isPrismaError(error, 'P2025')) {
         throw new NotFoundException('Categoria não encontrada');
       }
       throw error;
     }
-  }
-
-  private isPrismaError(error: unknown, code: string): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      error.code === code
-    );
   }
 }

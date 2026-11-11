@@ -30,6 +30,13 @@ export class VotesService {
       throw new NotFoundException('Incidente não encontrado');
     }
 
+    if (
+      incident.status === IncidentStatus.REMOVED ||
+      incident.status === IncidentStatus.DELETED
+    ) {
+      throw new NotFoundException('Incidente não encontrado');
+    }
+
     if (incident.authorId === user.id) {
       throw new ForbiddenException('Não pode votar no seu próprio incidente');
     }
