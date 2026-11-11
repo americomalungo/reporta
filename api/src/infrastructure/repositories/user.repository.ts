@@ -13,12 +13,14 @@ export class UserRepository {
   ): Promise<User> {
     return this.prismaService.$transaction(async (transaction) => {
       const user = await transaction.user.create({ data });
-      await transaction.$executeRaw`
-        UPDATE users
-        SET "lastLocation" = ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography,
-            "lastLocationAt" = now()
-        WHERE id = ${user.id}
-      `;
+      if (latitude !== undefined && longitude !== undefined) {
+        await transaction.$executeRaw`
+          UPDATE users
+          SET "lastLocation" = ST_SetSRID(ST_MakePoint(${longitude}::float8, ${latitude}::float8), 4326)::geography,
+              "lastLocationAt" = now()
+          WHERE id = ${user.id}
+        `;
+      }
       return user;
     });
   }
@@ -30,7 +32,7 @@ export class UserRepository {
   ): Promise<void> {
     await this.prismaService.$executeRaw`
       UPDATE users
-      SET "lastLocation" = ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography,
+      SET "lastLocation" = ST_SetSRID(ST_MakePoint(${longitude}::float8, ${latitude}::float8), 4326)::geography,
           "lastLocationAt" = now()
       WHERE id = ${userId}
     `;

@@ -45,7 +45,7 @@ export class IncidentsRepository {
         ${data.title},
         ${data.description},
         ${data.address ?? null},
-        ST_SetSRID(ST_MakePoint(${data.longitude}, ${data.latitude}), 4326)::geography,
+        ST_SetSRID(ST_MakePoint(${data.longitude}::float8, ${data.latitude}::float8), 4326)::geography,
         'ACTIVE',
         now() + interval '48 hours',
         now()

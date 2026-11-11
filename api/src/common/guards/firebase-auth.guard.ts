@@ -23,7 +23,10 @@ export class FirebaseAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const targets = [context.getHandler(), context.getClass()];
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets);
+    const isPublic = this.reflector.getAllAndOverride<boolean>(
+      IS_PUBLIC_KEY,
+      targets,
+    );
     if (isPublic) return true;
 
     const allowUnregistered = this.reflector.getAllAndOverride<boolean>(
@@ -55,19 +58,29 @@ export class FirebaseAuthGuard implements CanActivate {
       );
     }
 
-    if (user.status === AccountStatus.DELETED || user.status === AccountStatus.BANNED) {
-      throw new ForbiddenException('A sua conta não pode aceder a esta aplicação.');
-    }
-
-    if (user.status === AccountStatus.SUSPENDED) {
-      if (!user.suspendedUntil || user.suspendedUntil <= new Date()) {
-        return true;
-      }
+    if (
+      user.status === AccountStatus.DELETED ||
+      user.status === AccountStatus.BANNED
+    ) {
       throw new ForbiddenException(
-        'A sua conta está suspensa até ' + user.suspendedUntil.toISOString(),
+        'A sua conta não pode aceder a esta aplicação.',
       );
     }
 
+    if (user.status === AccountStatus.SUSPENDED) {
+      if (!user.suspendedUntil || user.suspendedUntil > new Date()) {
+        if (user.suspendedUntil) {
+          throw new ForbiddenException(
+            'A sua conta está suspensa até ' +
+              user.suspendedUntil.toISOString(),
+          );
+        }
+        throw new ForbiddenException('A sua conta está suspensa.');
+      }
+    }
+
+    req.dbUser = user;
+    req.user = { ...req.user, role: user.role };
     return true;
   }
 }

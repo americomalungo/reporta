@@ -13,6 +13,7 @@ import { Auth, DecodedIdToken } from 'firebase-admin/auth';
 import { FIREBASE_AUTH } from '@/src/infrastructure/firebase/firebase.constants';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
 import { ReturnUserDto } from './dto/return-user.dto';
+import { PublicUserDto } from './dto/public-user.dto';
 
 @Injectable()
 export class UsersService {
@@ -40,7 +41,7 @@ export class UsersService {
       name: user.name,
       role: user.role ? user.role : UserRole.USER,
       email: user.email,
-      phone: currentUser.phone_number,
+      phone: user.phone ?? undefined,
       alertsEnabled: user.alertsEnabled,
       avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
       alertRadiusM: user?.alertRadiusM,
@@ -116,13 +117,23 @@ export class UsersService {
    * Função que retorna todos usuarios
    * Se o usuario atenticado for admin, retorna todos. Senão retorna somente os ativos
    * @param {DecodedIdToken} user
-   * @returns {Promise<ReturnUserDto[]>}
+   * @returns {Promise<ReturnUserDto[] | PublicUserDto[]>}
    */
-  async findAll(user: DecodedIdToken): Promise<ReturnUserDto[]> {
-    const where =
-      user.role === UserRole.ADMIN ? {} : { status: AccountStatus.ACTIVE };
+  async findAll(
+    user: DecodedIdToken,
+  ): Promise<ReturnUserDto[] | PublicUserDto[]> {
+    const isAdmin = user.role === UserRole.ADMIN;
+    const users = await this.repository.findMany(
+      isAdmin ? {} : { status: AccountStatus.ACTIVE },
+    );
 
-    const users = await this.repository.findMany(where);
+    if (!isAdmin) {
+      return users.map((u) => ({
+        id: u.id,
+        name: u.name,
+        avatarUrl: u.avatarUrl,
+      }));
+    }
 
     return users.map((u) => ({
       id: u.id,
@@ -140,22 +151,39 @@ export class UsersService {
    * Função que retorna o perfil de um usuário
    * @param {DecodedIdToken} currentUser
    * @param {{ id: string }} param
-   * @returns {Promise<ReturnUserDto>}
+   * @returns {Promise<ReturnUserDto | PublicUserDto>}
    */
   async findOne(
     currentUser: DecodedIdToken,
     param: { id: string },
-  ): Promise<ReturnUserDto> {
-    const user =
-      currentUser.role === UserRole.ADMIN
-        ? await this.repository.findUnique(param)
-        : await this.repository.findFirst({
-            id: param.id,
-            status: AccountStatus.ACTIVE,
-          });
+  ): Promise<ReturnUserDto | PublicUserDto> {
+    const user = await this.repository.findUnique(param);
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (currentUser.role !== UserRole.ADMIN) {
+      if (user.firebaseUid === currentUser.uid) {
+        return {
+          id: user.id,
+          role: user.role ? user.role : UserRole.USER,
+          name: user.name,
+          email: user.email,
+          phone: user.phone ?? undefined,
+          alertsEnabled: user.alertsEnabled,
+          avatarUrl: user.avatarUrl ?? undefined,
+          alertRadiusM: user.alertRadiusM,
+        };
+      }
+      if (user.status !== AccountStatus.ACTIVE) {
+        throw new NotFoundException('User not found');
+      }
+      return {
+        id: user.id,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+      };
     }
 
     return {
