@@ -17,7 +17,9 @@ import { SuspendUserDto } from './dto/suspend-user.dto';
 import { BanUserDto } from './dto/ban-user.dto';
 import { RestrictPostingDto } from './dto/restrict-posting.dto';
 
-/** Endpoints administrativos para a gestão de contas. */
+/**
+ * Endpoints administrativos para a gestão de contas.
+ */
 @ApiTags('Admin')
 @Controller('admin/users')
 @Roles(UserRole.ADMIN)

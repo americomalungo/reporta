@@ -9,7 +9,9 @@ import { AccountStatus, ModerationAction, UserRole } from '@/generated/prisma';
 import type { AdminUserRecord } from '@/src/common/types/moderation.types';
 import { PrismaService } from '../prisma/prisma.service';
 
-/** Executa transições administrativas de contas e guarda histórico e auditoria. */
+/**
+ * Executa transições administrativas de contas e guarda histórico e auditoria.
+ */
 @Injectable()
 export class AdminUserRepository {
   /** Cria o repository administrativo de utilizadores.
@@ -365,17 +367,44 @@ export class AdminUserRepository {
   }
 }
 
-/** Opções internas para transições administrativas de conta. */
+/**
+ * Opções internas para transições administrativas de conta.
+ */
 interface TransitionOptions {
-  /** Estados de origem válidos. */ from: AccountStatus[];
-  /** Estado final opcional. */ to?: AccountStatus;
-  /** Dias de suspensão. */ suspendedDays?: number;
-  /** Dias de bloqueio de publicação. */ postingDays?: number;
-  /** Limpa localização e tokens. */ clearLocation?: boolean;
-  /** Reinicia penalizações. */ resetRemovals?: boolean;
-  /** Remove bloqueio de publicação. */ liftPosting?: boolean;
-  /** Permite agir sobre outro administrador. */ allowOtherAdmin?: boolean;
+  /**
+   * Estados de origem válidos.
+   */
+  from: AccountStatus[];
+  /**
+   * Estado final opcional.
+   */
+  to?: AccountStatus;
+  /**
+   * Dias de suspensão.
+   */
+  suspendedDays?: number;
+  /**
+   * Dias de bloqueio de publicação.
+   */
+  postingDays?: number;
+  /**
+   * Limpa localização e tokens.
+   */
+  clearLocation?: boolean;
+  /**
+   * Reinicia penalizações.
+   */
+  resetRemovals?: boolean;
+  /**
+   * Remove bloqueio de publicação.
+   */
+  liftPosting?: boolean;
+  /**
+   * Permite agir sobre outro administrador.
+   */
+  allowOtherAdmin?: boolean;
 }
+/** Campos selecionados para montar a resposta administrativa de utilizador. */
 const userSelect = {
   id: true,
   name: true,

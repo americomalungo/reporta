@@ -14,6 +14,7 @@ import { IncidentMediaRepository } from '@/src/infrastructure/repositories/incid
 import type { NewMedia } from '@/src/infrastructure/repositories/incident-media.repository';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { StorageService } from '@/src/infrastructure/storage/storage.service';
+import { MediaUrlService } from './media-url.service';
 import { ReturnMediaDto } from '../dto/return-media.dto';
 import {
   ImageProcessorService,
@@ -42,13 +43,15 @@ export class IncidentMediaService {
    * @param {IncidentsRepository} incidentsRepository consulta dos incidentes
    * @param {IncidentMediaRepository} incidentMediaRepository persistência das imagens
    * @param {ImageProcessorService} imageProcessor validação e conversão das imagens
-   * @param {StorageService} storageService armazenamento dos objetos no R2
+   * @param {StorageService} storageService armazenamento privado
+   * @param {MediaUrlService} mediaUrlService conversão para URLs assinados
    */
   constructor(
     private readonly incidentsRepository: IncidentsRepository,
     private readonly incidentMediaRepository: IncidentMediaRepository,
     private readonly imageProcessor: ImageProcessorService,
     private readonly storageService: StorageService,
+    private readonly mediaUrlService: MediaUrlService,
   ) {}
 
   /**
@@ -60,7 +63,7 @@ export class IncidentMediaService {
    * @throws {BadRequestException} se não forem enviadas entre uma e três imagens válidas
    * @throws {NotFoundException} se o incidente não existir ou não estiver acessível ao utilizador
    * @throws {ConflictException} se o incidente não estiver ativo ou exceder o limite de três fotos
-   * @throws {BadGatewayException} se o envio de algum objeto para o R2 falhar
+   * @throws {BadGatewayException} se o envio de algum objeto para o armazenamento falhar
    */
   async upload(
     user: User,
@@ -94,17 +97,20 @@ export class IncidentMediaService {
     try {
       for (const image of processed) {
         const path = `incidents/${incidentId}/${randomUUID()}.webp`;
-        const url = await this.storageService.upload(
-          path,
-          image.buffer,
-          image.mimeType,
+        await this.storageService.upload(path, image.buffer, image.mimeType);
+        uploaded.push(
+          this.toNewMedia(
+            path,
+            this.storageService.getInternalReference(path),
+            bucket,
+            image,
+          ),
         );
-        uploaded.push(this.toNewMedia(path, url, bucket, image));
       }
     } catch (error: unknown) {
       await this.removeUploadedObjects(uploaded);
       this.logger.error(
-        `Falha ao enviar imagens do incidente ${incidentId} para o R2`,
+        `Falha ao enviar imagens do incidente ${incidentId} para o armazenamento`,
         error instanceof Error ? error.stack : String(error),
       );
       throw new BadGatewayException('Falha ao guardar as imagens');
@@ -116,17 +122,11 @@ export class IncidentMediaService {
         await this.removeUploadedObjects(uploaded);
         throw error;
       });
-    return media.map((item) => ({
-      id: item.id,
-      url: item.url,
-      width: item.width,
-      height: item.height,
-      sortOrder: item.sortOrder,
-    }));
+    return this.mediaUrlService.toReturnDtos(media);
   }
 
   /**
-   * Apaga a linha da foto e tenta remover o objeto correspondente do R2.
+   * Apaga a linha da foto e tenta remover o objeto correspondente do armazenamento.
    * @param {User} user utilizador autenticado
    * @param {string} incidentId identificador do incidente
    * @param {string} mediaId identificador da imagem
@@ -158,7 +158,7 @@ export class IncidentMediaService {
       await this.storageService.remove([media.path]);
     } catch (error: unknown) {
       this.logger.error(
-        `Falha ao remover a imagem ${media.id} do R2`,
+        `Falha ao remover a imagem ${media.id} do armazenamento`,
         error instanceof Error ? error.stack : String(error),
       );
     }
@@ -168,8 +168,8 @@ export class IncidentMediaService {
   /**
    * Converte os dados processados para o formato persistido no repository.
    * @param {string} path chave do objeto no bucket
-   * @param {string} url URL pública do objeto
-   * @param {string} bucket nome do bucket R2
+   * @param {string} url referência interna do objeto, inacessível publicamente
+   * @param {string} bucket nome do bucket privado
    * @param {ProcessedImage} image conteúdo e metadados da imagem processada
    * @returns {NewMedia} dados prontos para persistência
    */
@@ -191,7 +191,7 @@ export class IncidentMediaService {
   }
 
   /**
-   * Compensa falhas removendo os objetos já enviados para o R2.
+   * Compensa falhas removendo os objetos já enviados para o armazenamento.
    * @param {NewMedia[]} items objetos enviados durante o pedido
    * @returns {Promise<void>} conclusão da tentativa de compensação
    */
@@ -201,7 +201,7 @@ export class IncidentMediaService {
       await this.storageService.remove(items.map((item) => item.path));
     } catch (error: unknown) {
       this.logger.error(
-        'Falha ao compensar objetos enviados para o R2',
+        'Falha ao compensar objetos enviados para o armazenamento',
         error instanceof Error ? error.stack : String(error),
       );
     }

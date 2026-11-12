@@ -16,17 +16,24 @@ import type {
 } from '@/src/common/types/moderation.types';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  AUTO_BAN_REASON,
+  AUTO_REMOVE_REASON,
   AUTO_REMOVE_DISCONFIRM_RATIO,
   AUTO_REMOVE_MIN_DISCONFIRMS,
   BAN_AT_REMOVED,
   POSTING_BLOCK_AT_REMOVED,
   POSTING_BLOCK_DAYS,
-} from '@/src/modules/moderation/moderation.constants';
+} from '@/src/common/constants/moderation.constants';
+import { REPUTATION_INCIDENT_REMOVED_PENALTY } from '@/src/common/constants/reputation.constants';
 
-/** Persiste transições de moderação e os respetivos registos de auditoria. */
+/**
+ * Persiste transições de moderação e os respetivos registos de auditoria.
+ */
 @Injectable()
 export class ModerationRepository {
-  /** Cria o repository de moderação. @param {PrismaService} prismaService acesso à base de dados */
+  /**
+   * Cria o repository de moderação. @param {PrismaService} prismaService acesso à base de dados
+   */
   constructor(private readonly prismaService: PrismaService) {}
 
   /** Remove atomicamente um incidente quando os votos atingem o limiar automático.
@@ -37,11 +44,12 @@ export class ModerationRepository {
     incidentId: string,
   ): Promise<AutoRemovalResult | null> {
     return this.prismaService.$transaction(async (tx) => {
+      const reason = AUTO_REMOVE_REASON;
       const removed = await tx.$queryRaw<
         { authorId: string; confirmCount: number; disconfirmCount: number }[]
       >`
         UPDATE incidents SET status = 'REMOVED', "removedAt" = now(), "removedBy" = NULL,
-          "removedReason" = 'Removido automaticamente por desconfirmações da comunidade', "updatedAt" = now()
+          "removedReason" = ${reason}, "updatedAt" = now()
         WHERE id = ${incidentId} AND status = 'ACTIVE'
           AND "disconfirmCount" >= ${AUTO_REMOVE_MIN_DISCONFIRMS}
           AND "disconfirmCount" >= ${AUTO_REMOVE_DISCONFIRM_RATIO} * "confirmCount"
@@ -57,14 +65,14 @@ export class ModerationRepository {
           status: AccountStatus;
         }[]
       >`
-        UPDATE users SET "removedPostsCount" = "removedPostsCount" + 1, "updatedAt" = now()
+        UPDATE users SET "removedPostsCount" = "removedPostsCount" + 1,
+          "reputationScore" = GREATEST("reputationScore" + ${REPUTATION_INCIDENT_REMOVED_PENALTY}, 0),
+          "updatedAt" = now()
         WHERE id = ${incident.authorId} RETURNING id, "removedPostsCount", role, status
       `;
       const author = authors[0];
       if (!author)
         throw new NotFoundException('Autor do incidente não encontrado');
-      const reason =
-        'Removido automaticamente por desconfirmações da comunidade';
       await tx.moderationLog.create({
         data: {
           action: ModerationAction.REMOVE_INCIDENT,
@@ -109,7 +117,7 @@ export class ModerationRepository {
             where: { id: author.id },
             data: {
               status: AccountStatus.BANNED,
-              statusReason: 'Banido automaticamente: 3 incidentes removidos',
+              statusReason: AUTO_BAN_REASON,
               statusChangedAt: changedAt,
               statusChangedBy: null,
             },
@@ -119,7 +127,7 @@ export class ModerationRepository {
               userId: author.id,
               fromStatus: AccountStatus.ACTIVE,
               toStatus: AccountStatus.BANNED,
-              reason: 'Banido automaticamente: 3 incidentes removidos',
+              reason: AUTO_BAN_REASON,
               changedBy: null,
             },
           });
@@ -133,7 +141,7 @@ export class ModerationRepository {
               action: ModerationAction.BAN_USER,
               adminId: null,
               targetUserId: author.id,
-              reason: 'Banido automaticamente: 3 incidentes removidos',
+              reason: AUTO_BAN_REASON,
               metadata: { auto: true },
             },
           });
@@ -243,6 +251,10 @@ export class ModerationRepository {
           'O incidente foi alterado por outro pedido',
         );
       }
+      await tx.$executeRaw`
+        UPDATE users SET "reputationScore" = GREATEST("reputationScore" + ${REPUTATION_INCIDENT_REMOVED_PENALTY}, 0),
+          "updatedAt" = now() WHERE id = ${current.authorId}
+      `;
       await tx.moderationLog.create({
         data: {
           action: ModerationAction.REMOVE_INCIDENT,
@@ -306,7 +318,12 @@ export class ModerationRepository {
         current.status === IncidentStatus.REMOVED &&
         current.removedBy === null
       ) {
-        await tx.$executeRaw`UPDATE users SET "removedPostsCount" = GREATEST("removedPostsCount" - 1, 0), "updatedAt" = now() WHERE id = ${current.authorId}`;
+        await tx.$executeRaw`UPDATE users SET "removedPostsCount" = GREATEST("removedPostsCount" - 1, 0),
+          "reputationScore" = GREATEST("reputationScore" - ${REPUTATION_INCIDENT_REMOVED_PENALTY}, 0),
+          "updatedAt" = now() WHERE id = ${current.authorId}`;
+      } else if (current.status === IncidentStatus.REMOVED) {
+        await tx.$executeRaw`UPDATE users SET "reputationScore" = GREATEST("reputationScore" - ${REPUTATION_INCIDENT_REMOVED_PENALTY}, 0),
+          "updatedAt" = now() WHERE id = ${current.authorId}`;
       }
       await tx.moderationLog.create({
         data: {

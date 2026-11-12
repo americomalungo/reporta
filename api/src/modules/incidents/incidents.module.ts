@@ -21,6 +21,7 @@ import {
 } from './controllers/incident-media.controller';
 import { IncidentMediaService } from './services/incident-media.service';
 import { ImageProcessorService } from './services/image-processor.service';
+import { MediaUrlService } from './services/media-url.service';
 
 @Module({
   imports: [UsersModule, AlertsModule, ModerationModule],
@@ -35,6 +36,7 @@ import { ImageProcessorService } from './services/image-processor.service';
     IncidentsService,
     IncidentMediaService,
     ImageProcessorService,
+    MediaUrlService,
     MulterUploadErrorInterceptor,
     VotesService,
     CommentsService,

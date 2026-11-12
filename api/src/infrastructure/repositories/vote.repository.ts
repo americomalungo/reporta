@@ -6,6 +6,7 @@ import {
 import { Prisma, Vote, VoteType } from '@/generated/prisma';
 import { isPrismaError } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
+import { REPUTATION_CONFIRMED_BY_OTHER } from '@/src/common/constants/reputation.constants';
 
 /**
  * Resultado do processamento de um voto num incidente.
@@ -100,6 +101,7 @@ export class VoteRepository {
         const incident = await tx.incident.findUnique({
           where: { id: incidentId },
           select: {
+            authorId: true,
             confirmCount: true,
             disconfirmCount: true,
           },
@@ -131,6 +133,15 @@ export class VoteRepository {
               disconfirmCount: true,
             },
           });
+
+          if (type === VoteType.CONFIRM) {
+            await tx.$executeRaw`
+              UPDATE users
+              SET "reputationScore" = GREATEST("reputationScore" + ${REPUTATION_CONFIRMED_BY_OTHER}, 0),
+                  "updatedAt" = now()
+              WHERE id = ${incident.authorId}
+            `;
+          }
 
           return {
             myVote: type,
@@ -185,6 +196,20 @@ export class VoteRepository {
           },
         });
 
+        const reputationDelta =
+          (type === VoteType.CONFIRM ? REPUTATION_CONFIRMED_BY_OTHER : 0) -
+          (existingVote.type === VoteType.CONFIRM
+            ? REPUTATION_CONFIRMED_BY_OTHER
+            : 0);
+        if (reputationDelta !== 0) {
+          await tx.$executeRaw`
+            UPDATE users
+            SET "reputationScore" = GREATEST("reputationScore" + ${reputationDelta}, 0),
+                "updatedAt" = now()
+            WHERE id = ${incident.authorId}
+          `;
+        }
+
         return {
           myVote: type,
           confirmCount: updatedIncident.confirmCount,
@@ -225,6 +250,12 @@ export class VoteRepository {
           throw new NotFoundException('Ainda não votou neste incidente');
         }
 
+        const incident = await tx.incident.findUnique({
+          where: { id: incidentId },
+          select: { authorId: true },
+        });
+        if (!incident) throw new NotFoundException('Incidente não encontrado');
+
         const deletedVote = await tx.vote.deleteMany({
           where: {
             incidentId,
@@ -254,6 +285,15 @@ export class VoteRepository {
             disconfirmCount: true,
           },
         });
+
+        if (existingVote.type === VoteType.CONFIRM) {
+          await tx.$executeRaw`
+            UPDATE users
+            SET "reputationScore" = GREATEST("reputationScore" - ${REPUTATION_CONFIRMED_BY_OTHER}, 0),
+                "updatedAt" = now()
+            WHERE id = ${incident.authorId}
+          `;
+        }
 
         return {
           myVote: null,

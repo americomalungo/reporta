@@ -4,6 +4,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { AccountStatus, User } from '@/generated/prisma';
+import type { Prisma } from '@/generated/prisma';
 import { ModerationAction } from '@/src/common/enums/moderation.enums';
 import type {
   CreateUserData,
@@ -211,6 +212,9 @@ export class UserRepository {
           where: { userId: id },
           data: { isActive: false },
         });
+        await transaction.userInterestZone.deleteMany({
+          where: { userId: id },
+        });
         await transaction.userStatusHistory.create({
           data: {
             userId: id,
@@ -256,11 +260,56 @@ export class UserRepository {
       if (result.count === 0) {
         return transaction.user.findUnique({ where: { id } });
       }
+      await this.recordExpiredSuspensions(transaction, [id]);
+      return transaction.user.findUnique({ where: { id } });
+    });
+  }
 
-      const reason = 'Suspensão expirada automaticamente';
+  /** Reativa um lote de suspensões vencidas com exclusão concorrente e auditoria atómica.
+   * @param {number} batchSize limite de utilizadores por lote
+   * @returns {Promise<string[]>} identificadores reativados nesta transação
+   */
+  async liftExpiredSuspensions(batchSize: number): Promise<string[]> {
+    return this.prismaService.$transaction(
+      async (transaction) => {
+        const changed = await transaction.$queryRaw<{ id: string }[]>`
+        WITH expired AS (
+          SELECT id FROM users
+          WHERE status = 'SUSPENDED' AND "suspendedUntil" <= now()
+          ORDER BY "suspendedUntil", id
+          LIMIT ${batchSize}
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE users AS u
+        SET status = 'ACTIVE', "suspendedUntil" = NULL, "statusReason" = NULL,
+            "statusChangedAt" = now(), "statusChangedBy" = NULL, "updatedAt" = now()
+        FROM expired
+        WHERE u.id = expired.id AND u.status = 'SUSPENDED'
+          AND u."suspendedUntil" <= now()
+        RETURNING u.id
+      `;
+        const ids = changed.map((user) => user.id);
+        await this.recordExpiredSuspensions(transaction, ids);
+        return ids;
+      },
+      { maxWait: 15_000, timeout: 30_000 },
+    );
+  }
+
+  /** Regista histórico e auditoria para utilizadores reativados numa transação existente.
+   * @param {Prisma.TransactionClient} transaction transação do repository
+   * @param {string[]} userIds utilizadores reativados
+   * @returns {Promise<void>} conclusão dos registos
+   */
+  private async recordExpiredSuspensions(
+    transaction: Prisma.TransactionClient,
+    userIds: string[],
+  ): Promise<void> {
+    const reason = 'Suspensão expirada automaticamente';
+    for (const userId of userIds) {
       await transaction.userStatusHistory.create({
         data: {
-          userId: id,
+          userId,
           fromStatus: AccountStatus.SUSPENDED,
           toStatus: AccountStatus.ACTIVE,
           reason,
@@ -271,13 +320,12 @@ export class UserRepository {
         data: {
           action: ModerationAction.UNSUSPEND_USER,
           adminId: null,
-          targetUserId: id,
+          targetUserId: userId,
           reason,
           metadata: { auto: true },
         },
       });
-      return transaction.user.findUnique({ where: { id } });
-    });
+    }
   }
 
   /**

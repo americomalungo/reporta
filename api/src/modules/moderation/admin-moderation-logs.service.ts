@@ -2,11 +2,17 @@ import { Injectable } from '@nestjs/common';
 import { ModerationLogRepository } from '@/src/infrastructure/repositories/moderation-log.repository';
 import type { ModerationLogFilters } from '@/src/common/types/moderation.types';
 import type { CursorPage } from '@/src/common/types/pagination.types';
-import { decodeCursor, encodeCursor } from '@/src/common/utils/cursor';
+import {
+  decodeCursor,
+  encodeCursor,
+  isCreatedAtIdCursor,
+} from '@/src/common/utils/cursor';
 import { AdminModerationLogsQueryDto } from './dto/admin-moderation-logs-query.dto';
 import { AdminModerationLogDto } from './dto/admin-moderation-log.dto';
 
-/** Consulta a auditoria de moderação por cursor. */
+/**
+ * Consulta a auditoria de moderação por cursor.
+ */
 @Injectable()
 export class AdminModerationLogsService {
   /** Cria o serviço de consulta da auditoria.
@@ -34,7 +40,7 @@ export class AdminModerationLogsService {
     const decoded =
       query.cursor === undefined
         ? undefined
-        : decodeCursor(query.cursor, isLogCursor);
+        : decodeCursor(query.cursor, isCreatedAtIdCursor);
     const cursor =
       decoded === undefined
         ? undefined
@@ -43,37 +49,16 @@ export class AdminModerationLogsService {
     const rows = await this.repository.list(filters, cursor, take + 1);
     const hasNextPage = rows.length > take;
     const pageRows = rows.slice(0, take);
-    const data = pageRows.map((row) => {
-      const metadata: Record<string, unknown> | null = {};
-      if (
-        row.metadata !== null &&
-        typeof row.metadata === 'object' &&
-        !Array.isArray(row.metadata)
-      ) {
-        for (const [key, value] of Object.entries(row.metadata))
-          metadata[key] = value;
-      } else if (row.metadata === null)
-        return {
-          id: row.id,
-          action: row.action,
-          adminId: row.adminId,
-          incidentId: row.incidentId,
-          targetUserId: row.targetUserId,
-          reason: row.reason,
-          metadata: null,
-          createdAt: row.createdAt,
-        };
-      return {
-        id: row.id,
-        action: row.action,
-        adminId: row.adminId,
-        incidentId: row.incidentId,
-        targetUserId: row.targetUserId,
-        reason: row.reason,
-        metadata,
-        createdAt: row.createdAt,
-      };
-    });
+    const data = pageRows.map((row): AdminModerationLogDto => ({
+      id: row.id,
+      action: row.action,
+      adminId: row.adminId,
+      incidentId: row.incidentId,
+      targetUserId: row.targetUserId,
+      reason: row.reason,
+      metadata: this.toMetadataRecord(row.metadata),
+      createdAt: row.createdAt,
+    }));
     const last = pageRows.at(-1);
     return {
       data,
@@ -87,25 +72,16 @@ export class AdminModerationLogsService {
           : null,
     };
   }
-}
 
-/** Valida o formato do cursor de auditoria.
- * @param {unknown} value valor descodificado
- * @returns {value is ModerationLogCursor} indica cursor válido
- */
-function isLogCursor(
-  value: unknown,
-): value is { createdAt: string; id: string } {
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    !('createdAt' in value) ||
-    !('id' in value)
-  )
-    return false;
-  return (
-    typeof value.createdAt === 'string' &&
-    !Number.isNaN(Date.parse(value.createdAt)) &&
-    typeof value.id === 'string'
-  );
+  /** Converte metadados JSON em objeto de registo para a resposta da API.
+   * @param {unknown} value valor JSON persistido
+   * @returns {Record<string, unknown> | null} metadados ou null quando não são objeto
+   */
+  private toMetadataRecord(value: unknown): Record<string, unknown> | null {
+    if (typeof value !== 'object' || value === null || Array.isArray(value))
+      return null;
+    const record: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) record[key] = item;
+    return record;
+  }
 }

@@ -2,7 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { StorageService } from './storage.service.js';
 
 /**
- * Disponibiliza globalmente o serviço de armazenamento Cloudflare R2.
+ * Disponibiliza globalmente o serviço de armazenamento privado compatível com S3.
  */
 @Global()
 @Module({

@@ -36,6 +36,7 @@ export class UsersService {
 
     return {
       id: user.id,
+      reputationScore: user.reputationScore,
       name: user.name,
       role: user.role ? user.role : UserRole.USER,
       email: user.email,
@@ -102,6 +103,7 @@ export class UsersService {
 
     return {
       id: user.id,
+      reputationScore: user.reputationScore,
       name: user.name,
       role: user.role ? user.role : UserRole.USER,
       email: user.email,
@@ -127,6 +129,7 @@ export class UsersService {
     if (!isAdmin) {
       return users.map((u) => ({
         id: u.id,
+        reputationScore: u.reputationScore,
         name: u.name,
         avatarUrl: u.avatarUrl,
       }));
@@ -134,6 +137,7 @@ export class UsersService {
 
     return users.map((u) => ({
       id: u.id,
+      reputationScore: u.reputationScore,
       name: u.name,
       role: u.role ?? UserRole.USER,
       email: u.email,
@@ -164,6 +168,7 @@ export class UsersService {
       if (user.firebaseUid === currentUser.uid) {
         return {
           id: user.id,
+          reputationScore: user.reputationScore,
           role: user.role ? user.role : UserRole.USER,
           name: user.name,
           email: user.email,
@@ -178,6 +183,7 @@ export class UsersService {
       }
       return {
         id: user.id,
+        reputationScore: user.reputationScore,
         name: user.name,
         avatarUrl: user.avatarUrl,
       };
@@ -185,6 +191,7 @@ export class UsersService {
 
     return {
       id: user.id,
+      reputationScore: user.reputationScore,
       role: user.role ? user.role : UserRole.USER,
       name: user.name,
       email: user.email,
@@ -251,6 +258,7 @@ export class UsersService {
     }
     return {
       id: user.id,
+      reputationScore: user.reputationScore,
       name: user.name,
       role: user.role ? user.role : UserRole.USER,
       email: user.email,
@@ -295,8 +303,10 @@ export class UsersService {
     }
 
     const originalFirebaseUid = targetUser.firebaseUid;
+    let firebaseDisabled = false;
     try {
       await this.authService.disableUser(originalFirebaseUid);
+      firebaseDisabled = true;
       await this.authService.revokeUserSessions(originalFirebaseUid);
       await this.repository.softDelete(id, {
         actorId: actor.id,
@@ -306,10 +316,12 @@ export class UsersService {
         message: `Usuário com id ${id} removido com sucesso.`,
       };
     } catch (error) {
-      try {
-        await this.authService.enableUser(originalFirebaseUid);
-      } catch {
-        // Mantém a falha original e tenta reativar o utilizador no Firebase.
+      if (firebaseDisabled) {
+        try {
+          await this.authService.enableUser(originalFirebaseUid);
+        } catch {
+          // Mantém a falha original quando a compensação no Firebase também falha.
+        }
       }
       throw error;
     }

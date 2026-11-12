@@ -20,7 +20,9 @@ import { RemoveIncidentDto } from './dto/remove-incident.dto';
 import { RestoreIncidentDto } from './dto/restore-incident.dto';
 import { ModerationService } from './moderation.service';
 
-/** Endpoints administrativos para a fila e as ações sobre incidentes. */
+/**
+ * Endpoints administrativos para a fila e as ações sobre incidentes.
+ */
 @ApiTags('Admin')
 @Controller('admin/incidents')
 @Roles(UserRole.ADMIN)

@@ -7,7 +7,9 @@ import { AdminModerationLogsQueryDto } from './dto/admin-moderation-logs-query.d
 import { AdminModerationLogDto } from './dto/admin-moderation-log.dto';
 import { AdminModerationLogsService } from './admin-moderation-logs.service';
 
-/** Endpoint administrativo de pesquisa da auditoria de moderação. */
+/**
+ * Endpoint administrativo de pesquisa da auditoria de moderação.
+ */
 @ApiTags('Admin')
 @Controller('admin/moderation-logs')
 @Roles(UserRole.ADMIN)

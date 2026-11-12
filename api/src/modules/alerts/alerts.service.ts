@@ -111,12 +111,21 @@ export class AlertsService {
           userId: recipient.userId,
           type: NotificationType.RISK_ALERT,
           title: 'Alerta de risco perto de si',
-          body: `A categoria ${incident.categoryName} registou o incidente "${incident.title}", a cerca de ${Math.round(recipient.distanceM)} m.`,
+          body: this.createAlertBody(
+            recipient,
+            incident.categoryName,
+            incident.title,
+          ),
           incidentId: incident.id,
           data: {
             incidentId: incident.id,
             categoryId: incident.categoryId,
-            distanceM: recipient.distanceM,
+            ...(recipient.distanceM === null
+              ? {}
+              : { distanceM: recipient.distanceM }),
+            ...(recipient.zoneName === null
+              ? {}
+              : { zoneName: recipient.zoneName }),
           },
         })),
       );
@@ -159,6 +168,9 @@ export class AlertsService {
             data: {
               incidentId: incident.id,
               type: NotificationType.RISK_ALERT,
+              ...(recipient.zoneName === null
+                ? {}
+                : { zoneName: recipient.zoneName }),
             },
           });
           await this.pushTokenRepository.deactivateTokens(result.invalidTokens);
@@ -171,5 +183,25 @@ export class AlertsService {
     }
 
     await this.notificationRepository.markPushSent(pushSentIds);
+  }
+
+  /** Monta o texto de alerta conforme a proximidade e a zona que interseta.
+   * @param {AlertRecipient} recipient destinatário e critérios correspondidos
+   * @param {string} categoryName nome da categoria de risco
+   * @param {string} title título do incidente
+   * @returns {string} mensagem localizada para o destinatário
+   */
+  private createAlertBody(
+    recipient: AlertRecipient,
+    categoryName: string,
+    title: string,
+  ): string {
+    if (recipient.distanceM !== null && recipient.zoneName !== null) {
+      return `A categoria ${categoryName} registou o incidente "${title}", a cerca de ${Math.round(recipient.distanceM)} m, na sua zona "${recipient.zoneName}".`;
+    }
+    if (recipient.distanceM !== null) {
+      return `A categoria ${categoryName} registou o incidente "${title}", a cerca de ${Math.round(recipient.distanceM)} m.`;
+    }
+    return `A categoria ${categoryName} registou o incidente "${title}" na sua zona "${recipient.zoneName ?? ''}".`;
   }
 }

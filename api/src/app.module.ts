@@ -15,6 +15,8 @@ import { APP_GUARD } from '@nestjs/core';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -33,11 +35,13 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     EnvModule,
     FirebaseModule,
     StorageModule,
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     UsersModule,
     IncidentsModule,
     NotificationsModule,
+    MaintenanceModule,
   ],
   controllers: [AppController],
   providers: [

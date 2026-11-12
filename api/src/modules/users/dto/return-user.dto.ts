@@ -1,4 +1,6 @@
 export class ReturnUserDto {
+  /** Pontuação de reputação do utilizador. */
+  reputationScore: number;
   id: string | undefined;
   name: string | undefined;
   role: string | null | undefined;

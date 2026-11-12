@@ -26,7 +26,7 @@ export class CategoryRepository {
   /**
    * Cria uma categoria com os dados de domínio recebidos.
    * @param {CreateCategoryData} data dados de criação da categoria
-   * @param {string | undefined} adminId administrador para auditoria da criação
+   * @param {string} adminId administrador para auditoria da criação
    * @returns {Promise<Category>} categoria persistida
    * @throws {ConflictException} se já existir uma categoria com o mesmo slug
    */
@@ -37,15 +37,14 @@ export class CategoryRepository {
     try {
       return await this.prismaService.$transaction(async (tx) => {
         const category = await tx.category.create({ data });
-        if (adminId !== undefined)
-          await tx.moderationLog.create({
-            data: {
-              action: ModerationAction.EDIT_CATEGORY,
-              adminId,
-              reason: 'Categoria criada',
-              metadata: { categoryId: category.id, changes: Object.keys(data) },
-            },
-          });
+        await tx.moderationLog.create({
+          data: {
+            action: ModerationAction.EDIT_CATEGORY,
+            adminId,
+            reason: 'Categoria criada',
+            metadata: { categoryId: category.id, changes: Object.keys(data) },
+          },
+        });
         return category;
       });
     } catch (error: unknown) {
@@ -92,7 +91,7 @@ export class CategoryRepository {
    * Atualiza os campos de domínio de uma categoria.
    * @param {string} id identificador da categoria
    * @param {UpdateCategoryData} data campos de categoria a atualizar
-   * @param {string | undefined} adminId administrador para auditoria da edição
+   * @param {string} adminId administrador para auditoria da edição
    * @returns {Promise<Category>} categoria atualizada
    * @throws {ConflictException} se o novo slug já estiver em uso
    * @throws {NotFoundException} se a categoria não existir
@@ -105,15 +104,14 @@ export class CategoryRepository {
     try {
       return await this.prismaService.$transaction(async (tx) => {
         const category = await tx.category.update({ where: { id }, data });
-        if (adminId !== undefined)
-          await tx.moderationLog.create({
-            data: {
-              action: ModerationAction.EDIT_CATEGORY,
-              adminId,
-              reason: 'Categoria editada',
-              metadata: { categoryId: id, changes: Object.keys(data) },
-            },
-          });
+        await tx.moderationLog.create({
+          data: {
+            action: ModerationAction.EDIT_CATEGORY,
+            adminId,
+            reason: 'Categoria editada',
+            metadata: { categoryId: id, changes: Object.keys(data) },
+          },
+        });
         return category;
       });
     } catch (error: unknown) {

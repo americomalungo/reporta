@@ -2,44 +2,13 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Notification } from '@/src/common/types/entities.types';
 import type { CursorPage } from '@/src/common/types/pagination.types';
 import { NotificationRepository } from '@/src/infrastructure/repositories/notification.repository';
-import { decodeCursor, encodeCursor } from '@/src/common/utils/cursor';
+import {
+  decodeCursor,
+  encodeCursor,
+  isTimestampIdCursor,
+} from '@/src/common/utils/cursor';
 import { NotificationsQueryDto } from './dto/notifications-query.dto';
 import { ReturnNotificationDto } from './dto/return-notification.dto';
-
-/**
- * Dados validados de um cursor da lista de notificações.
- */
-interface NotificationCursor {
-  /**
-   * Data ISO da última notificação devolvida.
-   */
-  t: string;
-  /**
-   * Identificador da última notificação devolvida.
-   */
-  id: string;
-}
-
-function isNotificationCursor(value: unknown): value is NotificationCursor {
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    Array.isArray(value) ||
-    Object.keys(value).length !== 2 ||
-    !('t' in value) ||
-    !('id' in value) ||
-    typeof value.t !== 'string' ||
-    typeof value.id !== 'string' ||
-    value.id.length === 0
-  ) {
-    return false;
-  }
-
-  const timestamp = new Date(value.t);
-  return (
-    Number.isFinite(timestamp.getTime()) && timestamp.toISOString() === value.t
-  );
-}
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -71,7 +40,7 @@ export class NotificationsService {
     const limit = query.limit ?? 20;
     const cursor =
       query.cursor !== undefined
-        ? decodeCursor(query.cursor, isNotificationCursor)
+        ? decodeCursor(query.cursor, isTimestampIdCursor)
         : undefined;
     const notifications = await this.notificationRepository.listByUser(userId, {
       cursor: cursor

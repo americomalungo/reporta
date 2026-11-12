@@ -17,7 +17,9 @@ export interface AlertRecipient {
   /**
    * Distância entre o utilizador e o incidente, em metros.
    */
-  distanceM: number;
+  distanceM: number | null;
+  /** Nome da primeira zona que intersecta o incidente, quando existe. */
+  zoneName: string | null;
 }
 
 /**
@@ -47,7 +49,9 @@ interface AlertCandidate {
   /**
    * Distância geográfica ao incidente, em metros.
    */
-  distanceM: number;
+  distanceM: number | null;
+  /** Nome da primeira zona que intersecta o incidente, quando existe. */
+  zoneName: string | null;
 }
 
 /**
@@ -98,19 +102,34 @@ export class AlertRepository {
       const candidates = await transaction.$queryRaw<AlertCandidate[]>`
         SELECT
           u.id AS "userId",
-          ST_Distance(u."lastLocation", i.location)::float8 AS "distanceM"
+          CASE
+            WHEN u."lastLocation" IS NOT NULL
+              AND u."lastLocationAt" >= now() - (${LOCATION_MAX_AGE_HOURS} * interval '1 hour')
+            THEN ST_Distance(u."lastLocation", i.location)::float8
+            ELSE NULL
+          END AS "distanceM",
+          (
+            SELECT z.name FROM user_interest_zones z
+            WHERE z."userId" = u.id AND ST_Intersects(z.area, i.location)
+            ORDER BY z."createdAt" ASC, z.id ASC
+            LIMIT 1
+          ) AS "zoneName"
         FROM users u
         JOIN incidents i ON i.id = ${params.incidentId}
         WHERE i.status = 'ACTIVE'
           AND u.id <> ${params.authorId}
           AND u.status = 'ACTIVE'
           AND u."alertsEnabled" = true
-          AND u."lastLocation" IS NOT NULL
-          AND u."lastLocationAt" >= now() - (${LOCATION_MAX_AGE_HOURS} * interval '1 hour')
-          AND ST_DWithin(
-            u."lastLocation",
-            i.location,
-            u."alertRadiusM"::float8
+          AND (
+            (
+              u."lastLocation" IS NOT NULL
+              AND u."lastLocationAt" >= now() - (${LOCATION_MAX_AGE_HOURS} * interval '1 hour')
+              AND ST_DWithin(u."lastLocation", i.location, u."alertRadiusM"::float8)
+            )
+            OR EXISTS (
+              SELECT 1 FROM user_interest_zones z
+              WHERE z."userId" = u.id AND ST_Intersects(z.area, i.location)
+            )
           )
           AND NOT EXISTS (
             SELECT 1
@@ -134,7 +153,9 @@ export class AlertRepository {
         (candidate) =>
           Prisma.sql`(${randomUUID()}, ${candidate.userId}, ${params.incidentId}, ${candidate.distanceM}::float8)`,
       );
-      const recipients = await transaction.$queryRaw<AlertRecipient[]>(
+      const inserted = await transaction.$queryRaw<
+        Pick<AlertRecipient, 'userId' | 'distanceM'>[]
+      >(
         Prisma.sql`
           INSERT INTO alert_deliveries (
             id,
@@ -147,6 +168,13 @@ export class AlertRepository {
           RETURNING "userId", "distanceM"
         `,
       );
+      const candidatesByUserId = new Map(
+        candidates.map((candidate) => [candidate.userId, candidate]),
+      );
+      const recipients: AlertRecipient[] = inserted.map((recipient) => ({
+        ...recipient,
+        zoneName: candidatesByUserId.get(recipient.userId)?.zoneName ?? null,
+      }));
 
       return {
         recipients,

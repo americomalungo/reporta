@@ -7,7 +7,7 @@ export class ReturnMediaDto {
    */
   id: string;
   /**
-   * URL pública da imagem.
+   * URL assinado de leitura, que expira após pelo menos seis horas.
    */
   url: string;
   /**

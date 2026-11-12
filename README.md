@@ -18,7 +18,7 @@ Para evitar o rastreamento contínuo invasivo e garantir a economia de bateria d
 1. **Autenticação Segura:** Validação de tokens JWT gerados pelo Firebase Auth através de um *Guard* customizado no NestJS.
 2. **Gestão de Localização:** Atualização pontual da posição aproximada e do `fcmToken` para o envio de alertas direcionados.
 3. **Registro de Incidentes:** Postagem de ocorrências contendo título, descrição, categoria, foto e coordenadas geográficas exatas.
-4. **Armazenamento de Fotos:** Upload integrado de fotos para o Supabase Storage com salvamento da URL pública no banco.
+4. **Armazenamento de Fotos:** Upload de fotos para um bucket privado Backblaze B2 compatível com S3; a API entrega URLs assinados temporários.
 5. **Feed Cronológico de Incidentes:** Listagem de incidentes ordenados por data de criação (`createdAt DESC`), permitindo visualização geral.
 6. **Alertas de Proximidade (Raio de 1 km):** Processamento espacial no Neon (PostGIS) para notificar instantaneamente os afetados mais próximos.
 

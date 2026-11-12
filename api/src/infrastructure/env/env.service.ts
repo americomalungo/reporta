@@ -39,19 +39,26 @@ export class EnvService {
     };
   }
 
-  /** Devolve as credenciais e configurações do bucket Cloudflare R2. */
-  get r2() {
+  /** Devolve endpoint, região e credenciais privadas do armazenamento S3. */
+  get storage() {
     return {
-      accountId: this.config.getOrThrow('R2_ACCOUNT_ID', { infer: true }),
-      accessKeyId: this.config.getOrThrow('R2_ACCESS_KEY_ID', {
+      endpoint: this.config.getOrThrow('STORAGE_ENDPOINT', { infer: true }),
+      region: this.config.getOrThrow('STORAGE_REGION', { infer: true }),
+      accessKeyId: this.config.getOrThrow('STORAGE_ACCESS_KEY_ID', {
         infer: true,
       }),
-      secretAccessKey: this.config.getOrThrow('R2_SECRET_ACCESS_KEY', {
+      secretAccessKey: this.config.getOrThrow('STORAGE_SECRET_ACCESS_KEY', {
         infer: true,
       }),
-      bucket: this.config.getOrThrow('R2_BUCKET', { infer: true }),
-      publicUrl: this.config.getOrThrow('R2_PUBLIC_URL', { infer: true }),
+      bucket: this.config.getOrThrow('STORAGE_BUCKET', { infer: true }),
     };
+  }
+
+  /** Indica se os crons estão ativados.
+   * @returns {boolean} true quando jobs agendados podem correr
+   */
+  get jobsEnabled(): boolean {
+    return this.config.getOrThrow('JOBS_ENABLED', { infer: true });
   }
 
   get isProduction() {

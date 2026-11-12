@@ -4,6 +4,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { isPrismaError } from '../prisma/prisma-errors';
 import type { IncidentSearchCursor } from '@/src/common/types/incidents.types';
+import { REPUTATION_INCIDENT_CREATED } from '@/src/common/constants/reputation.constants';
 
 /**
  * Dados necessários para criar um incidente com geolocalização.
@@ -245,7 +246,8 @@ export class IncidentsRepository {
    */
   async createWithLocation(data: CreateIncidentData): Promise<string> {
     const id = randomUUID();
-    await this.prismaService.$executeRaw`
+    await this.prismaService.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
       INSERT INTO incidents (
         id,
         "authorId",
@@ -271,6 +273,13 @@ export class IncidentsRepository {
         now()
       )
     `;
+      await transaction.$executeRaw`
+        UPDATE users
+        SET "reputationScore" = GREATEST("reputationScore" + ${REPUTATION_INCIDENT_CREATED}, 0),
+            "updatedAt" = now()
+        WHERE id = ${data.authorId}
+      `;
+    });
     return id;
   }
 

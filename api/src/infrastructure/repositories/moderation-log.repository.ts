@@ -6,7 +6,9 @@ import type {
 } from '@/src/common/types/moderation.types';
 import { PrismaService } from '../prisma/prisma.service';
 
-/** Pesquisa os registos de auditoria de moderação. */
+/**
+ * Pesquisa os registos de auditoria de moderação.
+ */
 @Injectable()
 export class ModerationLogRepository {
   /**

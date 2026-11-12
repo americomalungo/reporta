@@ -13,48 +13,14 @@ import {
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { UserRole } from '@/src/common/enums/users.enums';
 import type { CursorPage } from '@/src/common/types/pagination.types';
-import { decodeCursor, encodeCursor } from '@/src/common/utils/cursor';
+import {
+  decodeCursor,
+  encodeCursor,
+  isTimestampIdCursor,
+} from '@/src/common/utils/cursor';
 import { CommentsQueryDto } from '../dto/comments-query.dto';
 import { CreateCommentDto } from '../dto/create-comment.dto';
 import { ReturnCommentDto } from '../dto/return-comment.dto';
-
-/**
- * Dados validados de um cursor de comentários.
- */
-interface CommentCursor {
-  /**
-   * Data ISO do último comentário devolvido.
-   */
-  t: string;
-  /**
-   * Identificador do último comentário devolvido.
-   */
-  id: string;
-}
-
-function isCommentCursor(value: unknown): value is CommentCursor {
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    Array.isArray(value) ||
-    Object.keys(value).length !== 2 ||
-    !('t' in value) ||
-    !('id' in value)
-  ) {
-    return false;
-  }
-
-  if (typeof value.t !== 'string' || typeof value.id !== 'string') {
-    return false;
-  }
-
-  const timestamp = new Date(value.t);
-  return (
-    value.id.length > 0 &&
-    Number.isFinite(timestamp.getTime()) &&
-    timestamp.toISOString() === value.t
-  );
-}
 
 /**
  * Serviço responsável pela gestão de comentários nos incidentes.
@@ -144,7 +110,7 @@ export class CommentsService {
     const limit = query.limit ?? 20;
     const cursor =
       query.cursor !== undefined
-        ? decodeCursor(query.cursor, isCommentCursor)
+        ? decodeCursor(query.cursor, isTimestampIdCursor)
         : undefined;
 
     const topLevelComments =
@@ -248,6 +214,7 @@ export class CommentsService {
         id: comment.user.id,
         name: comment.user.name,
         avatarUrl: comment.user.avatarUrl,
+        reputationScore: comment.user.reputationScore,
       },
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,

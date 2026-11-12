@@ -13,44 +13,46 @@ import { IncidentStatus } from '@/src/common/enums/incidents.enums';
 import { CategoryRepository } from '@/src/infrastructure/repositories/category.repository';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { IncidentMediaRepository } from '@/src/infrastructure/repositories/incident-media.repository';
+import { MediaUrlService } from './media-url.service';
 import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
 import { AlertsService } from '@/src/modules/alerts/alerts.service';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
 import type { CursorPage } from '@/src/common/types/pagination.types';
-import { decodeCursor, encodeCursor } from '@/src/common/utils/cursor';
+import {
+  decodeCursor,
+  encodeCursor,
+  isTimestampIdCursor,
+} from '@/src/common/utils/cursor';
 import { CreateIncidentDto } from '../dto/create-incident.dto';
 import { IncidentsQueryDto } from '../dto/incidents-query.dto';
 import { ReturnIncidentDto } from '../dto/return-incident.dto';
-
-function isCursorTimestamp(value: unknown): value is string {
-  if (typeof value !== 'string') {
-    return false;
-  }
-
-  const timestamp = new Date(value);
-  return (
-    Number.isFinite(timestamp.getTime()) && timestamp.toISOString() === value
-  );
-}
 
 function isFeedCursor(value: unknown): value is IncidentSearchCursor {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
 
-  if (Object.keys(value).length !== 3 || !('id' in value) || !('k' in value)) {
+  if (
+    !('k' in value) ||
+    !('id' in value) ||
+    typeof value.id !== 'string' ||
+    value.id.length === 0
+  )
     return false;
+  if (value.k === 'c') {
+    return (
+      Object.keys(value).length === 3 &&
+      't' in value &&
+      isTimestampIdCursor({ t: value.t, id: value.id })
+    );
   }
-
   return (
-    typeof value.id === 'string' &&
-    value.id.length > 0 &&
-    ((value.k === 'c' && 't' in value && isCursorTimestamp(value.t)) ||
-      (value.k === 'd' &&
-        'd' in value &&
-        typeof value.d === 'number' &&
-        Number.isFinite(value.d) &&
-        value.d >= 0))
+    value.k === 'd' &&
+    Object.keys(value).length === 3 &&
+    'd' in value &&
+    typeof value.d === 'number' &&
+    Number.isFinite(value.d) &&
+    value.d >= 0
   );
 }
 
@@ -67,6 +69,7 @@ export class IncidentsService {
     private readonly categoryRepository: CategoryRepository,
     private readonly voteRepository: VoteRepository,
     private readonly alertsService: AlertsService,
+    private readonly mediaUrlService: MediaUrlService,
   ) {}
 
   /**
@@ -165,7 +168,7 @@ export class IncidentsService {
       ((hasLocationFilter && cursor.k !== 'd') ||
         (!hasLocationFilter && cursor.k !== 'c'))
     ) {
-      throw new BadRequestException('Cursor inválido para este pedido');
+      throw new BadRequestException('Cursor inválido');
     }
 
     const rows = await this.incidentsRepository.searchIds(
@@ -314,18 +317,14 @@ export class IncidentsService {
     const coordinatesById = new Map(
       locations.map((location) => [location.id, location]),
     );
+    const signedMedia = await this.mediaUrlService.toReturnDtos(media);
     const mediaByIncidentId = new Map<string, ReturnIncidentDto['media']>();
-    for (const item of media) {
+    media.forEach((item, index) => {
       const items = mediaByIncidentId.get(item.incidentId) ?? [];
-      items.push({
-        id: item.id,
-        url: item.url,
-        width: item.width,
-        height: item.height,
-        sortOrder: item.sortOrder,
-      });
+      const signedItem = signedMedia[index];
+      if (signedItem) items.push(signedItem);
       mediaByIncidentId.set(item.incidentId, items);
-    }
+    });
 
     const voteMap = new Map<string, ReturnIncidentDto['myVote']>();
     if (viewerId) {

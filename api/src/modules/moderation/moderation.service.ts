@@ -8,13 +8,18 @@ import {
 } from '@nestjs/common';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
 import { NotificationType } from '@/src/common/enums/notifications.enums';
+import { POSTING_BLOCK_DAYS } from '@/src/common/constants/moderation.constants';
 import { AuthService } from '@/src/modules/auth/auth.service';
 import { NotificationDispatcherService } from '@/src/modules/notifications/notification-dispatcher.service';
 import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
 import { ModerationRepository } from '@/src/infrastructure/repositories/moderation.repository';
 import type { CursorPage } from '@/src/common/types/pagination.types';
 import type { AdminIncidentRecord } from '@/src/common/types/moderation.types';
-import { encodeCursor, decodeCursor } from '@/src/common/utils/cursor';
+import {
+  encodeCursor,
+  decodeCursor,
+  isCreatedAtIdCursor,
+} from '@/src/common/utils/cursor';
 import { AdminIncidentsQueryDto } from './dto/admin-incidents-query.dto';
 import { RemoveIncidentDto } from './dto/remove-incident.dto';
 import { RestoreIncidentDto } from './dto/restore-incident.dto';
@@ -25,7 +30,9 @@ import { SuspendUserDto } from './dto/suspend-user.dto';
 import { BanUserDto } from './dto/ban-user.dto';
 import { RestrictPostingDto } from './dto/restrict-posting.dto';
 
-/** Coordena regras de moderação e efeitos externos. */
+/**
+ * Coordena regras de moderação e efeitos externos.
+ */
 @Injectable()
 export class ModerationService {
   private readonly logger = new Logger(ModerationService.name);
@@ -66,7 +73,7 @@ export class ModerationService {
         await this.notificationDispatcher.notify(result.authorId, {
           type: NotificationType.POSTING_RESTRICTED,
           title: 'Publicações temporariamente limitadas',
-          body: 'A sua conta está impedida de publicar incidentes durante 30 dias.',
+          body: `A sua conta está impedida de publicar incidentes durante ${POSTING_BLOCK_DAYS} dias.`,
           push: false,
         });
       if (result.penalty === 'BANNED') {
@@ -114,16 +121,7 @@ export class ModerationService {
     const cursor =
       query.cursor === undefined
         ? undefined
-        : decodeCursor(
-            query.cursor,
-            (value: unknown): value is { createdAt: string; id: string } =>
-              typeof value === 'object' &&
-              value !== null &&
-              'createdAt' in value &&
-              typeof value.createdAt === 'string' &&
-              'id' in value &&
-              typeof value.id === 'string',
-          );
+        : decodeCursor(query.cursor, isCreatedAtIdCursor);
     const rows = await this.moderationRepository.listForModeration(
       query.status,
       cursor === undefined
@@ -295,6 +293,9 @@ export class ModerationService {
    */
   async unbanUser(admin: User, id: string): Promise<AdminUserRecord> {
     const target = await this.getTarget(admin, id, false);
+    if (target.status !== AccountStatus.BANNED) {
+      throw new ConflictException('A conta não está banida');
+    }
     await this.authService.enableUser(target.firebaseUid);
     let result: AdminUserRecord;
     try {
@@ -336,12 +337,12 @@ export class ModerationService {
       id,
       admin.id,
       dto.reason,
-      dto.days ?? 30,
+      dto.days ?? POSTING_BLOCK_DAYS,
     );
     await this.notificationDispatcher.notify(id, {
       type: NotificationType.POSTING_RESTRICTED,
       title: 'Publicações temporariamente limitadas',
-      body: `A sua conta está impedida de publicar durante ${dto.days ?? 30} dias.`,
+      body: `A sua conta está impedida de publicar durante ${dto.days ?? POSTING_BLOCK_DAYS} dias.`,
       push: true,
     });
     return result;
@@ -363,6 +364,12 @@ export class ModerationService {
    */
   async promoteUser(admin: User, id: string): Promise<AdminUserRecord> {
     const target = await this.getTarget(admin, id, false);
+    if (
+      target.role !== UserRole.USER ||
+      target.status !== AccountStatus.ACTIVE
+    ) {
+      throw new ConflictException('Só é possível promover utilizadores ativos');
+    }
     await this.authService.setRole(target.firebaseUid, UserRole.ADMIN);
     try {
       return await this.adminUserRepository.promote(id, admin.id);
@@ -390,6 +397,9 @@ export class ModerationService {
     if (id === admin.id)
       throw new ConflictException('Não pode despromover a própria conta');
     const target = await this.getTarget(admin, id, true);
+    if (target.role !== UserRole.ADMIN) {
+      throw new ConflictException('O utilizador não é administrador');
+    }
     await this.authService.setRole(target.firebaseUid, UserRole.USER);
     try {
       return await this.adminUserRepository.demote(id, admin.id);

@@ -6,6 +6,11 @@ import {
 import { MediaType } from '@/generated/prisma';
 import type { IncidentMedia } from '@/src/common/types/entities.types';
 import { PrismaService } from '../prisma/prisma.service';
+import type { RemovableMediaRecord } from '@/src/common/types/maintenance.types';
+import {
+  MEDIA_GRACE_AFTER_REMOVAL_HOURS,
+  MEDIA_RETENTION_AFTER_EXPIRY_DAYS,
+} from '@/src/common/constants/maintenance.constants';
 
 /**
  * Dados de uma imagem já processada, prontos para persistir.
@@ -20,7 +25,7 @@ export interface NewMedia {
    */
   path: string;
   /**
-   * URL pública da imagem.
+   * Referência interna do objeto, não acessível publicamente.
    */
   url: string;
   /**
@@ -160,5 +165,41 @@ export class IncidentMediaRepository {
       where: { id: { in: ids } },
     });
     return result.count;
+  }
+
+  /** Lista media cu incidentos fora da janela de restauro ou retenção.
+   * Incidentes restaurados após a limpeza das linhas ficam sem as fotos removidas.
+   * @param {number} limit máximo de linhas a devolver
+   * @returns {Promise<RemovableMediaRecord[]>} identificadores e caminhos elegíveis
+   */
+  async findRemovableBatch(limit: number): Promise<RemovableMediaRecord[]> {
+    return this.prismaService.$queryRaw<RemovableMediaRecord[]>`
+      SELECT media.id, media.path
+      FROM incident_media AS media
+      INNER JOIN incidents AS incident ON incident.id = media."incidentId"
+      WHERE (
+        incident.status IN ('REMOVED', 'DELETED')
+        AND incident."removedAt" <= now() - (${MEDIA_GRACE_AFTER_REMOVAL_HOURS} * interval '1 hour')
+      ) OR (
+        incident.status = 'EXPIRED'
+        AND incident."expiresAt" <= now() - (${MEDIA_RETENTION_AFTER_EXPIRY_DAYS} * interval '1 day')
+      )
+      ORDER BY media."createdAt", media.id
+      LIMIT ${limit}
+    `;
+  }
+
+  /** Procura que caminhos ainda têm linhas associadas na base de dados.
+   * @param {string[]} paths caminhos de objetos candidatos a órfãos
+   * @returns {Promise<Set<string>>} caminhos que continuam referenciados
+   */
+  async findExistingPaths(paths: string[]): Promise<Set<string>> {
+    if (paths.length === 0) return new Set<string>();
+    const rows = await this.prismaService.incidentMedia.findMany({
+      where: { path: { in: paths } },
+      select: { path: true },
+      distinct: ['path'],
+    });
+    return new Set(rows.map((row) => row.path));
   }
 }

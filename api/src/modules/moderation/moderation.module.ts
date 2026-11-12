@@ -11,7 +11,9 @@ import { AdminModerationLogsController } from './admin-moderation-logs.controlle
 import { AdminModerationLogsService } from './admin-moderation-logs.service';
 import { ModerationLogRepository } from '@/src/infrastructure/repositories/moderation-log.repository';
 
-/** Módulo das regras e operações de moderação. */
+/**
+ * Módulo das regras e operações de moderação.
+ */
 @Module({
   imports: [AuthModule, NotificationsModule],
   controllers: [

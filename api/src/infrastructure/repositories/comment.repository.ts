@@ -14,6 +14,7 @@ export type CommentWithAuthor = Prisma.CommentGetPayload<{
         id: true;
         name: true;
         avatarUrl: true;
+        reputationScore: true;
       };
     };
   };
@@ -91,6 +92,7 @@ export class CommentRepository {
                 id: true,
                 name: true,
                 avatarUrl: true,
+                reputationScore: true,
               },
             },
           },
@@ -150,6 +152,7 @@ export class CommentRepository {
             id: true,
             name: true,
             avatarUrl: true,
+            reputationScore: true,
           },
         },
       },
@@ -180,6 +183,7 @@ export class CommentRepository {
             id: true,
             name: true,
             avatarUrl: true,
+            reputationScore: true,
           },
         },
       },

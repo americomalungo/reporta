@@ -5,12 +5,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { IncidentStatus } from '@/src/common/enums/incidents.enums';
+import { IncidentStatus, VoteType } from '@/src/common/enums/incidents.enums';
 import type { User } from '@/src/common/types/entities.types';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
 import { ModerationService } from '@/src/modules/moderation/moderation.service';
-import { VoteType } from '@/src/common/enums/incidents.enums';
 import { VoteIncidentDto } from '../dto/vote-incident.dto';
 import { ReturnVoteDto } from '../dto/return-vote.dto';
 

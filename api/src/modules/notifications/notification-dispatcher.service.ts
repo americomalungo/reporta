@@ -4,7 +4,9 @@ import { NotificationRepository } from '@/src/infrastructure/repositories/notifi
 import { PushSenderService } from '@/src/infrastructure/firebase/push-sender.service';
 import type { NotificationDispatchInput } from '@/src/common/types/notifications.types';
 
-/** Persiste notificações e, quando pedido, envia push sem propagar falhas. */
+/**
+ * Persiste notificações e, quando pedido, envia push sem propagar falhas.
+ */
 @Injectable()
 export class NotificationDispatcherService {
   private readonly logger = new Logger(NotificationDispatcherService.name);

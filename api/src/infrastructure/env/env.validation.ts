@@ -1,9 +1,11 @@
 // env.validation.ts
-import { plainToInstance, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   IsUrl,
   Max,
@@ -51,31 +53,39 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   FIREBASE_CLIENT_EMAIL!: string;
 
-  /** Identificador da conta Cloudflare usada pelo R2. */
-  @IsString()
-  @IsNotEmpty()
-  R2_ACCOUNT_ID!: string;
-
-  /** Chave de acesso do utilizador R2. */
-  @IsString()
-  @IsNotEmpty()
-  R2_ACCESS_KEY_ID!: string;
-
-  /** Segredo da chave de acesso do utilizador R2. */
-  @IsString()
-  @IsNotEmpty()
-  R2_SECRET_ACCESS_KEY!: string;
-
-  /** Nome do bucket R2 criado para as imagens de incidentes. */
-  @IsString()
-  @IsNotEmpty()
-  R2_BUCKET!: string;
-
-  /** URL pública base usada para construir os endereços das imagens. */
-  @IsString()
-  @IsNotEmpty()
+  /** Endpoint da API compatível com S3, por exemplo o endpoint regional do Backblaze B2. */
   @IsUrl({ require_tld: false })
-  R2_PUBLIC_URL!: string;
+  STORAGE_ENDPOINT!: string;
+
+  /** Região S3 do bucket, por exemplo eu-central-003. */
+  @IsString()
+  @IsNotEmpty()
+  STORAGE_REGION!: string;
+
+  /** Identificador da chave de aplicação do armazenamento. */
+  @IsString()
+  @IsNotEmpty()
+  STORAGE_ACCESS_KEY_ID!: string;
+
+  /** Segredo da chave de aplicação do armazenamento. */
+  @IsString()
+  @IsNotEmpty()
+  STORAGE_SECRET_ACCESS_KEY!: string;
+
+  /** Nome do bucket privado de imagens. */
+  @IsString()
+  @IsNotEmpty()
+  STORAGE_BUCKET!: string;
+
+  /** Ativa a execução automática dos jobs agendados, true por omissão. */
+  @Transform(({ value }: { value: unknown }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  @IsOptional()
+  @IsBoolean()
+  JOBS_ENABLED = true;
 }
 
 export function validate(config: Record<string, unknown>) {
