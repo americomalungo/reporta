@@ -1,10 +1,12 @@
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule, ObserveInstrument } from './app.module';
 import { EnvService } from './infrastructure/env/env.service';
-import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -18,28 +20,37 @@ async function bootstrap() {
   const env = app.get(EnvService);
   const port: number = env.apiPort;
 
-  const config = new DocumentBuilder()
-    .setTitle('Minha API')
-    .setDescription('Documentação dos endpoints')
-    .setVersion('1.0')
-    .build();
+  if (!env.isProduction) {
+    const config = new DocumentBuilder()
+      .setTitle('Reporta API')
+      .setDescription(
+        'API do Reporta: alertas colaborativos de incidentes urbanos',
+      )
+      .setVersion('1.0')
+      .addBearerAuth({
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Token de ID do Firebase',
+      })
+      .addSecurityRequirements('bearer')
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
+    const document = SwaggerModule.createDocument(app, config);
+    const outputPath = path.resolve(process.cwd(), 'swagger.json');
+    fs.writeFileSync(outputPath, JSON.stringify(document, null, 2), {
+      encoding: 'utf8',
+    });
 
-  const outputPath = path.resolve(process.cwd(), 'swagger.json');
-  fs.writeFileSync(outputPath, JSON.stringify(document, null, 2), {
-    encoding: 'utf8',
-  });
-
-  console.log(`✅ Arquivo OpenAPI gerado em: ${outputPath}`);
-
-  SwaggerModule.setup('docs', app, document);
+    logger.log(`Arquivo OpenAPI gerado em: ${outputPath}`);
+    SwaggerModule.setup('docs', app, document);
+  }
 
   await app.listen(port);
 
-  console.log(`Reporta API is runing...`);
+  logger.log('Reporta API a correr...');
 }
 void bootstrap().catch((err) => {
-  console.error('Error starting the application:', err);
+  logger.error('Erro ao iniciar a aplicação:', err);
   process.exit(1);
 });

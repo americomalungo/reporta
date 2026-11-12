@@ -8,13 +8,13 @@ import {
   Query,
 } from '@nestjs/common';
 import type { DecodedIdToken } from 'firebase-admin/auth';
-import type { User } from '@/generated/prisma';
+import type { User } from '@/src/common/types/entities.types';
 import {
   CurrentDbUser,
   CurrentUser,
 } from '@/src/common/decorators/current-user.decorator';
 import { UserRole } from '@/src/common/enums/users.enums';
-import { Paginated } from '@/src/common/types/pagination.types';
+import type { CursorPage } from '@/src/common/types/pagination.types';
 import { CreateIncidentDto } from '../dto/create-incident.dto';
 import { IncidentsQueryDto } from '../dto/incidents-query.dto';
 import { ReturnIncidentDto } from '../dto/return-incident.dto';
@@ -32,15 +32,15 @@ export class IncidentsController {
    * Cria um novo incidente.
    * Método HTTP: POST /incidents
    * @param {CreateIncidentDto} createIncidentDto dados do incidente
-   * @param {DecodedIdToken} currentUser utilizador autenticado do Firebase
+   * @param {User} dbUser utilizador autenticado carregado da base de dados
    * @returns {Promise<ReturnIncidentDto>} incidente criado
    */
   @Post()
   create(
     @Body() createIncidentDto: CreateIncidentDto,
-    @CurrentUser() currentUser: DecodedIdToken,
+    @CurrentDbUser() dbUser: User,
   ): Promise<ReturnIncidentDto> {
-    return this.incidentsService.create(createIncidentDto, currentUser);
+    return this.incidentsService.create(createIncidentDto, dbUser);
   }
 
   /**
@@ -48,13 +48,13 @@ export class IncidentsController {
    * Método HTTP: GET /incidents
    * @param {IncidentsQueryDto} query parâmetros de paginação e filtros do feed
    * @param {User} dbUser utilizador autenticado carregado da base de dados
-   * @returns {Promise<Paginated<ReturnIncidentDto>>} lista paginada de incidentes
+   * @returns {Promise<CursorPage<ReturnIncidentDto>>} lista paginada de incidentes
    */
   @Get()
   findAll(
     @Query() query: IncidentsQueryDto,
     @CurrentDbUser() dbUser: User,
-  ): Promise<Paginated<ReturnIncidentDto>> {
+  ): Promise<CursorPage<ReturnIncidentDto>> {
     return this.incidentsService.findAll(query, dbUser.id);
   }
 

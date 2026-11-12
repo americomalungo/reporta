@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Param, Put } from '@nestjs/common';
-import type { User } from '@/generated/prisma';
+import type { User } from '@/src/common/types/entities.types';
 import { CurrentDbUser } from '@/src/common/decorators/current-user.decorator';
 import { VoteIncidentDto } from '../dto/vote-incident.dto';
 import { ReturnVoteDto } from '../dto/return-vote.dto';

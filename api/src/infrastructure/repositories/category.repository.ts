@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { isPrismaError } from '@/src/common/utils/prisma-errors';
+import { isPrismaError } from '../prisma/prisma-errors';
 
 @Injectable()
 export class CategoryRepository {

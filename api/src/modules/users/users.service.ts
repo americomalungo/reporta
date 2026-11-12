@@ -8,7 +8,6 @@ import {
 import type { DecodedIdToken } from 'firebase-admin/auth';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
 import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
-import { isPrismaError } from '@/src/common/utils/prisma-errors';
 import { CreateUserDto } from './dto/create-user.dto';
 import { PublicUserDto } from './dto/public-user.dto';
 import { ReturnUserDto } from './dto/return-user.dto';
@@ -95,30 +94,23 @@ export class UsersService {
       email,
     };
 
-    try {
-      await this.authService.setRole(firebaseUid, UserRole.USER);
-      const user = await this.repository.create(
-        data,
-        lastLocation?.latitude,
-        lastLocation?.longitude,
-      );
+    await this.authService.setRole(firebaseUid, UserRole.USER);
+    const user = await this.repository.create(
+      data,
+      lastLocation?.latitude,
+      lastLocation?.longitude,
+    );
 
-      return {
-        id: user.id,
-        name: user.name,
-        role: user.role ? user.role : UserRole.USER,
-        email: user.email,
-        alertRadiusM: user.alertRadiusM,
-        alertsEnabled: user.alertsEnabled,
-        phone: user.phone ? user.phone : undefined,
-        avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
-      };
-    } catch (error) {
-      if (isPrismaError(error, 'P2002')) {
-        throw new ConflictException('Utilizador já registado');
-      }
-      throw error;
-    }
+    return {
+      id: user.id,
+      name: user.name,
+      role: user.role ? user.role : UserRole.USER,
+      email: user.email,
+      alertRadiusM: user.alertRadiusM,
+      alertsEnabled: user.alertsEnabled,
+      phone: user.phone ? user.phone : undefined,
+      avatarUrl: user.avatarUrl ? user.avatarUrl : undefined,
+    };
   }
 
   /**

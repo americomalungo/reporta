@@ -1,4 +1,5 @@
 import type { VoteType as VoteTypeEnum } from '@/src/common/types/incidents.types';
+import { ReturnMediaDto } from './return-media.dto';
 
 /**
  * DTO público de resposta de um incidente.
@@ -72,4 +73,6 @@ export class ReturnIncidentDto {
    * Voto atual do utilizador autenticado, se existir.
    */
   myVote: VoteTypeEnum | null;
+  /** Fotos associadas ao incidente, ordenadas pela posição e data de criação. */
+  media: ReturnMediaDto[];
 }

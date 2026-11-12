@@ -11,30 +11,12 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { CursorPaginationQueryDto } from '@/src/common/dto/cursor-pagination-query.dto';
 
 /**
  * DTO de query para a listagem do feed de incidentes.
  */
-export class IncidentsQueryDto {
-  /**
-   * Número da página de resultados a devolver.
-   */
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @IsOptional()
-  page?: number;
-
-  /**
-   * Número máximo de incidentes por página.
-   */
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  @IsOptional()
-  limit?: number;
-
+export class IncidentsQueryDto extends CursorPaginationQueryDto {
   /**
    * Identificador da categoria para filtrar os incidentes.
    */

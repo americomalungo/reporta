@@ -50,6 +50,9 @@ logs
 */.temp
 */.tmp
 
+# Generated OpenAPI document
+api/swagger.json
+
 # Runtime data
 */pids
 */*.pid

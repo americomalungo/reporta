@@ -8,7 +8,8 @@ import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { AuthenticatedRequest } from '../decorators/current-user.decorator';
-import { UserRole } from '@/generated/prisma';
+import { UserRole } from '@/src/common/enums/users.enums';
+import type { UserRole as UserRoleType } from '@/src/common/types/users.types';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -21,16 +22,23 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const required = this.reflector.getAllAndOverride<UserRole[]>(
+    const required = this.reflector.getAllAndOverride<UserRoleType[]>(
       ROLES_KEY,
       targets,
     );
     if (!required?.length) return true;
 
     const { user } = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    const userRole = user?.role as UserRole | undefined;
+    const userRole = user?.role;
+    const isKnownRole = Object.values(UserRole).some(
+      (role) => role === userRole,
+    );
 
-    if (!userRole || !required.includes(userRole)) {
+    if (
+      !userRole ||
+      !isKnownRole ||
+      !required.some((role) => role === userRole)
+    ) {
       throw new ForbiddenException('Sem permissão para este recurso');
     }
     return true;

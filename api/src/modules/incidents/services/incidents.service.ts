@@ -3,53 +3,92 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { DecodedIdToken } from 'firebase-admin/auth';
-import { Incident, IncidentStatus } from '@/generated/prisma';
+import { IncidentStatus } from '@/src/common/enums/incidents.enums';
+import type { Incident, User } from '@/src/common/types/entities.types';
+import type { IncidentSearchCursor } from '@/src/common/types/incidents.types';
 import { CategoryRepository } from '@/src/infrastructure/repositories/category.repository';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
+import { IncidentMediaRepository } from '@/src/infrastructure/repositories/incident-media.repository';
 import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
 import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
+import { AlertsService } from '@/src/modules/alerts/alerts.service';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
-import { Paginated } from '@/src/common/types/pagination.types';
+import type { CursorPage } from '@/src/common/types/pagination.types';
+import { decodeCursor, encodeCursor } from '@/src/common/utils/cursor';
 import { CreateIncidentDto } from '../dto/create-incident.dto';
 import { IncidentsQueryDto } from '../dto/incidents-query.dto';
 import { ReturnIncidentDto } from '../dto/return-incident.dto';
+
+function isCursorTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const timestamp = new Date(value);
+  return (
+    Number.isFinite(timestamp.getTime()) && timestamp.toISOString() === value
+  );
+}
+
+function isFeedCursor(value: unknown): value is IncidentSearchCursor {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  if (Object.keys(value).length !== 3 || !('id' in value) || !('k' in value)) {
+    return false;
+  }
+
+  return (
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    ((value.k === 'c' && 't' in value && isCursorTimestamp(value.t)) ||
+      (value.k === 'd' &&
+        'd' in value &&
+        typeof value.d === 'number' &&
+        Number.isFinite(value.d) &&
+        value.d >= 0))
+  );
+}
 
 /**
  * Serviço responsável pela gestão dos incidentes.
  */
 @Injectable()
 export class IncidentsService {
+  private readonly logger = new Logger(IncidentsService.name);
+
   constructor(
     private readonly incidentsRepository: IncidentsRepository,
+    private readonly incidentMediaRepository: IncidentMediaRepository,
     private readonly userRepository: UserRepository,
     private readonly categoryRepository: CategoryRepository,
     private readonly voteRepository: VoteRepository,
+    private readonly alertsService: AlertsService,
   ) {}
 
   /**
    * Cria um novo incidente para o utilizador autenticado.
    * @param {CreateIncidentDto} dto dados do incidente
-   * @param {DecodedIdToken} currentUser utilizador autenticado do Firebase
+   * @param {User} dbUser utilizador autenticado carregado da base de dados
    * @returns {Promise<ReturnIncidentDto>} incidente criado com coordenadas e estado atual
    * @throws {ForbiddenException} se o utilizador não estiver ativo ou estiver bloqueado
    * @throws {NotFoundException} se a categoria não existir ou estiver inativa
    */
   async create(
     dto: CreateIncidentDto,
-    currentUser: DecodedIdToken,
+    dbUser: User,
   ): Promise<ReturnIncidentDto> {
-    const author = await this.userRepository.findUnique({
-      firebaseUid: currentUser.uid,
-    });
-    if (!author || author.status !== AccountStatus.ACTIVE) {
+    if (dbUser.status !== AccountStatus.ACTIVE) {
       throw new ForbiddenException(
         'Apenas utilizadores ativos podem criar incidentes',
       );
     }
-    if (author.postingBlockedUntil && author.postingBlockedUntil > new Date()) {
+    if (dbUser.postingBlockedUntil && dbUser.postingBlockedUntil > new Date()) {
       throw new ForbiddenException(
         'A sua conta está impedida de publicar incidentes',
       );
@@ -63,7 +102,7 @@ export class IncidentsService {
     }
 
     const id = await this.incidentsRepository.createWithLocation({
-      authorId: author.id,
+      authorId: dbUser.id,
       categoryId: category.id,
       title: dto.title,
       description: dto.description,
@@ -71,19 +110,36 @@ export class IncidentsService {
       latitude: dto.latitude,
       longitude: dto.longitude,
     });
-    return this.findOne(id, author.id, currentUser.role === UserRole.ADMIN);
+    const response = await this.findOne(
+      id,
+      dbUser.id,
+      dbUser.role === UserRole.ADMIN,
+    );
+
+    if (category.isRisk) {
+      void this.alertsService
+        .dispatchRiskAlert(id)
+        .catch((error: unknown) =>
+          this.logger.error(
+            `Falha ao despachar o alerta de risco do incidente ${id}`,
+            error instanceof Error ? error.stack : String(error),
+          ),
+        );
+    }
+
+    return response;
   }
 
   /**
    * Lista incidentes ativos para um utilizador autenticado.
    * @param {IncidentsQueryDto} query parâmetros de paginação e filtros (categoria, texto, propriedade do autor, latitude/longitude com raio opcional)
    * @param {string} viewerId id do utilizador autenticado
-   * @returns {Promise<Paginated<ReturnIncidentDto>>} incidentes paginados com distância e voto do utilizador quando aplicável
+   * @returns {Promise<CursorPage<ReturnIncidentDto>>} incidentes paginados com distância e voto do utilizador quando aplicável
    */
   async findAll(
     query: IncidentsQueryDto,
     viewerId: string,
-  ): Promise<Paginated<ReturnIncidentDto>> {
+  ): Promise<CursorPage<ReturnIncidentDto>> {
     const hasLat = query.lat !== undefined;
     const hasLng = query.lng !== undefined;
     const hasRadius = query.radius !== undefined;
@@ -100,11 +156,21 @@ export class IncidentsService {
       );
     }
 
-    const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const skip = (page - 1) * limit;
     const hasLocationFilter = hasLat && hasLng;
     const radiusM = hasLocationFilter ? (query.radius ?? 1000) : undefined;
+    const cursor =
+      query.cursor !== undefined
+        ? decodeCursor(query.cursor, isFeedCursor)
+        : undefined;
+
+    if (
+      cursor &&
+      ((hasLocationFilter && cursor.k !== 'd') ||
+        (!hasLocationFilter && cursor.k !== 'c'))
+    ) {
+      throw new BadRequestException('Cursor inválido para este pedido');
+    }
 
     const rows = await this.incidentsRepository.searchIds(
       {
@@ -116,7 +182,7 @@ export class IncidentsService {
         longitude: query.lng,
         radiusM,
       },
-      skip,
+      cursor,
       limit + 1,
     );
 
@@ -145,7 +211,32 @@ export class IncidentsService {
       viewerId,
       distanceById,
     );
-    return { data, page, limit, hasNextPage };
+    const lastIncident = orderedIncidents.at(-1);
+    const lastRow = pageRows.find((row) => row.id === lastIncident?.id);
+    let nextCursor: string | null = null;
+
+    if (hasNextPage && lastRow) {
+      if (hasLocationFilter) {
+        if (typeof lastRow.distanceM !== 'number') {
+          throw new InternalServerErrorException(
+            'Não foi possível determinar a distância do cursor',
+          );
+        }
+        nextCursor = encodeCursor({
+          k: 'd',
+          d: lastRow.distanceM,
+          id: lastRow.id,
+        });
+      } else {
+        nextCursor = encodeCursor({
+          k: 'c',
+          t: lastRow.createdAt.toISOString(),
+          id: lastRow.id,
+        });
+      }
+    }
+
+    return { data, nextCursor, hasNextPage };
   }
 
   /**
@@ -226,12 +317,26 @@ export class IncidentsService {
     viewerId: string,
     distanceById?: Map<string, number>,
   ): Promise<ReturnIncidentDto[]> {
-    const locations = await this.incidentsRepository.getCoordinates(
-      incidents.map((incident) => incident.id),
-    );
+    const incidentIds = incidents.map((incident) => incident.id);
+    const [locations, media] = await Promise.all([
+      this.incidentsRepository.getCoordinates(incidentIds),
+      this.incidentMediaRepository.findByIncidentIds(incidentIds),
+    ]);
     const coordinatesById = new Map(
       locations.map((location) => [location.id, location]),
     );
+    const mediaByIncidentId = new Map<string, ReturnIncidentDto['media']>();
+    for (const item of media) {
+      const items = mediaByIncidentId.get(item.incidentId) ?? [];
+      items.push({
+        id: item.id,
+        url: item.url,
+        width: item.width,
+        height: item.height,
+        sortOrder: item.sortOrder,
+      });
+      mediaByIncidentId.set(item.incidentId, items);
+    }
 
     const voteMap = new Map<string, ReturnIncidentDto['myVote']>();
     if (viewerId) {
@@ -271,6 +376,7 @@ export class IncidentsService {
         longitude: location.longitude,
         distanceM: distanceById?.get(incident.id) ?? null,
         myVote: voteMap.get(incident.id) ?? null,
+        media: mediaByIncidentId.get(incident.id) ?? [],
       };
     });
   }

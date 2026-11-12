@@ -1,7 +1,10 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { Incident, Prisma } from '@/generated/prisma';
-import { Injectable } from '@nestjs/common';
+import type { IncidentMedia } from '@/src/common/types/entities.types';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { isPrismaError } from '../prisma/prisma-errors';
+import type { IncidentSearchCursor } from '@/src/common/types/incidents.types';
 
 /**
  * Dados necessários para criar um incidente com geolocalização.
@@ -64,9 +67,53 @@ export interface IncidentSearchRow {
    */
   id: string;
   /**
+   * Data de criação usada como cursor quando a pesquisa não é por proximidade.
+   */
+  createdAt: Date;
+  /**
    * Distância em metros até o ponto de referência, quando aplicável.
    */
   distanceM?: number | null;
+}
+
+/**
+ * Dados mínimos do incidente para decidir se deve gerar alerta de risco.
+ */
+export interface IncidentRiskAlertData {
+  /**
+   * Identificador do incidente.
+   */
+  id: string;
+
+  /**
+   * Identificador do autor do incidente.
+   */
+  authorId: string;
+
+  /**
+   * Identificador da categoria do incidente.
+   */
+  categoryId: string;
+
+  /**
+   * Título do incidente.
+   */
+  title: string;
+
+  /**
+   * Estado atual do incidente.
+   */
+  status: Incident['status'];
+
+  /**
+   * Nome da categoria associada.
+   */
+  categoryName: string;
+
+  /**
+   * Indica se a categoria gera alertas de risco.
+   */
+  isRisk: boolean;
 }
 
 /**
@@ -79,7 +126,7 @@ export class IncidentsRepository {
   /**
    * Pesquisa os ids de incidentes aplicando filtros de categoria, texto, autoria e proximidade.
    * @param {{ categoryId?: string; search?: string; mine?: boolean; viewerId?: string; latitude?: number; longitude?: number; radiusM?: number; }} filters filtros da consulta
-   * @param {number} skip quantidade de registros a ignorar
+   * @param {IncidentSearchCursor | undefined} cursor posição a partir da qual continuar a pesquisa
    * @param {number} take quantidade máxima de registros a devolver
    * @returns {Promise<IncidentSearchRow[]>} ids dos incidentes com distância calculada quando aplicável
    */
@@ -93,7 +140,7 @@ export class IncidentsRepository {
       longitude?: number;
       radiusM?: number;
     },
-    skip: number,
+    cursor: IncidentSearchCursor | undefined,
     take: number,
   ): Promise<IncidentSearchRow[]> {
     const clauses: Prisma.Sql[] = [];
@@ -150,19 +197,37 @@ export class IncidentsRepository {
           ) AS "distanceM"`
       : Prisma.sql``;
 
-    const orderBy = hasLocationFilter
-      ? Prisma.sql`ORDER BY "distanceM" ASC, i."createdAt" DESC, i.id DESC`
-      : Prisma.sql`ORDER BY i."createdAt" DESC, i.id DESC`;
+    if (!hasLocationFilter && cursor?.k === 'c') {
+      clauses.push(
+        Prisma.sql`AND (i."createdAt", i.id) < ((${cursor.t}::timestamptz AT TIME ZONE 'UTC')::timestamp(3), ${cursor.id})`,
+      );
+    }
 
     const whereClause = Prisma.join(clauses, ' ');
-    const query = Prisma.sql`
-      SELECT i.id ${selectDistance}
-      FROM incidents i
-      ${whereClause}
-      ${orderBy}
-      LIMIT ${take}
-      OFFSET ${skip}
-    `;
+    const query = hasLocationFilter
+      ? Prisma.sql`
+          WITH candidates AS (
+            SELECT i.id, i."createdAt" ${selectDistance}
+            FROM incidents i
+            ${whereClause}
+          )
+          SELECT id, "createdAt", "distanceM"
+          FROM candidates
+          ${
+            cursor?.k === 'd'
+              ? Prisma.sql`WHERE ("distanceM", id) > (${cursor.d}::float8, ${cursor.id})`
+              : Prisma.sql``
+          }
+          ORDER BY "distanceM" ASC, id ASC
+          LIMIT ${take}
+        `
+      : Prisma.sql`
+          SELECT i.id, i."createdAt"
+          FROM incidents i
+          ${whereClause}
+          ORDER BY i."createdAt" DESC, i.id DESC
+          LIMIT ${take}
+        `;
 
     const rows = await this.prismaService.$queryRaw<IncidentSearchRow[]>(query);
     return rows;
@@ -209,8 +274,10 @@ export class IncidentsRepository {
    * @param {Prisma.IncidentMediaCreateInput} data payload de criação de mídia
    * @returns {Promise<Prisma.IncidentMedia>} registo criado
    */
-  async createIncidentMidia(data: Prisma.IncidentMediaCreateInput) {
-    return await this.prismaService.incidentMedia.create({
+  async createIncidentMedia(
+    data: Prisma.IncidentMediaCreateInput,
+  ): Promise<IncidentMedia> {
+    return this.prismaService.incidentMedia.create({
       data,
     });
   }
@@ -254,6 +321,46 @@ export class IncidentsRepository {
   }
 
   /**
+   * Obtém os dados do incidente e da categoria usados no despacho de alerta.
+   * @param {string} incidentId id do incidente
+   * @returns {Promise<IncidentRiskAlertData | null>} dados do alerta ou null se o incidente não existir
+   */
+  async findRiskAlertData(
+    incidentId: string,
+  ): Promise<IncidentRiskAlertData | null> {
+    const incident = await this.prismaService.incident.findUnique({
+      where: { id: incidentId },
+      select: {
+        id: true,
+        authorId: true,
+        categoryId: true,
+        title: true,
+        status: true,
+        category: {
+          select: {
+            name: true,
+            isRisk: true,
+          },
+        },
+      },
+    });
+
+    if (!incident) {
+      return null;
+    }
+
+    return {
+      id: incident.id,
+      authorId: incident.authorId,
+      categoryId: incident.categoryId,
+      title: incident.title,
+      status: incident.status,
+      categoryName: incident.category.name,
+      isRisk: incident.category.isRisk,
+    };
+  }
+
+  /**
    * Obtém as coordenadas geográficas dos incidentes informados.
    * @param {string[]} ids identificadores dos incidentes
    * @returns {Promise<IncidentCoordinates[]>} coordenadas extraídas da geolocalização
@@ -281,9 +388,13 @@ export class IncidentsRepository {
     where: Prisma.IncidentWhereUniqueInput,
     data: Prisma.IncidentUpdateInput,
   ): Promise<Incident> {
-    return await this.prismaService.incident.update({
-      where,
-      data,
-    });
+    try {
+      return await this.prismaService.incident.update({ where, data });
+    } catch (error) {
+      if (isPrismaError(error, 'P2025')) {
+        throw new NotFoundException('Incidente não encontrado');
+      }
+      throw error;
+    }
   }
 }

@@ -5,6 +5,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsString,
+  IsUrl,
   Max,
   Min,
   validateSync,
@@ -49,6 +50,32 @@ export class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   FIREBASE_CLIENT_EMAIL!: string;
+
+  /** Identificador da conta Cloudflare usada pelo R2. */
+  @IsString()
+  @IsNotEmpty()
+  R2_ACCOUNT_ID!: string;
+
+  /** Chave de acesso do utilizador R2. */
+  @IsString()
+  @IsNotEmpty()
+  R2_ACCESS_KEY_ID!: string;
+
+  /** Segredo da chave de acesso do utilizador R2. */
+  @IsString()
+  @IsNotEmpty()
+  R2_SECRET_ACCESS_KEY!: string;
+
+  /** Nome do bucket R2 criado para as imagens de incidentes. */
+  @IsString()
+  @IsNotEmpty()
+  R2_BUCKET!: string;
+
+  /** URL pública base usada para construir os endereços das imagens. */
+  @IsString()
+  @IsNotEmpty()
+  @IsUrl({ require_tld: false })
+  R2_PUBLIC_URL!: string;
 }
 
 export function validate(config: Record<string, unknown>) {

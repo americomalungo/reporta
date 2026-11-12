@@ -39,6 +39,21 @@ export class EnvService {
     };
   }
 
+  /** Devolve as credenciais e configurações do bucket Cloudflare R2. */
+  get r2() {
+    return {
+      accountId: this.config.getOrThrow('R2_ACCOUNT_ID', { infer: true }),
+      accessKeyId: this.config.getOrThrow('R2_ACCESS_KEY_ID', {
+        infer: true,
+      }),
+      secretAccessKey: this.config.getOrThrow('R2_SECRET_ACCESS_KEY', {
+        infer: true,
+      }),
+      bucket: this.config.getOrThrow('R2_BUCKET', { infer: true }),
+      publicUrl: this.config.getOrThrow('R2_PUBLIC_URL', { infer: true }),
+    };
+  }
+
   get isProduction() {
     return (
       this.config.get('NODE_ENV', { infer: true }) === Environment.Production

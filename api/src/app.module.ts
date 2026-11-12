@@ -13,6 +13,8 @@ import { RolesGuard } from './common/guards/roles.guard';
 import { UsersModule } from './modules/users/users.module';
 import { APP_GUARD } from '@nestjs/core';
 import { IncidentsModule } from './modules/incidents/incidents.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { StorageModule } from './infrastructure/storage/storage.module';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -30,10 +32,12 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     }),
     EnvModule,
     FirebaseModule,
+    StorageModule,
     PrismaModule,
     AuthModule,
     UsersModule,
     IncidentsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -1,24 +1,19 @@
 /**
- * Tipo partilhado para respostas paginadas.
+ * Página de resultados percorrida por cursor.
  */
-export interface Paginated<T> {
+export interface CursorPage<T> {
   /**
-   * Dados da página atual.
+   * Elementos da página atual.
    */
   data: T[];
 
   /**
-   * Número da página atual.
+   * Cursor para obter a página seguinte, ou null quando não existe.
    */
-  page: number;
+  nextCursor: string | null;
 
   /**
-   * Número máximo de itens por página.
-   */
-  limit: number;
-
-  /**
-   * Indica se existe uma página seguinte.
+   * Indica se existem mais resultados após esta página.
    */
   hasNextPage: boolean;
 }

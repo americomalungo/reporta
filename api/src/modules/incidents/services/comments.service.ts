@@ -4,18 +4,57 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { User } from '@/generated/prisma';
-import { IncidentStatus } from '@/generated/prisma';
+import type { User } from '@/src/common/types/entities.types';
+import { IncidentStatus } from '@/src/common/enums/incidents.enums';
 import {
   CommentRepository,
   CommentWithAuthor,
 } from '@/src/infrastructure/repositories/comment.repository';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { UserRole } from '@/src/common/enums/users.enums';
-import { Paginated } from '@/src/common/types/pagination.types';
+import type { CursorPage } from '@/src/common/types/pagination.types';
+import { decodeCursor, encodeCursor } from '@/src/common/utils/cursor';
 import { CommentsQueryDto } from '../dto/comments-query.dto';
 import { CreateCommentDto } from '../dto/create-comment.dto';
 import { ReturnCommentDto } from '../dto/return-comment.dto';
+
+/**
+ * Dados validados de um cursor de comentários.
+ */
+interface CommentCursor {
+  /**
+   * Data ISO do último comentário devolvido.
+   */
+  t: string;
+  /**
+   * Identificador do último comentário devolvido.
+   */
+  id: string;
+}
+
+function isCommentCursor(value: unknown): value is CommentCursor {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 2 ||
+    !('t' in value) ||
+    !('id' in value)
+  ) {
+    return false;
+  }
+
+  if (typeof value.t !== 'string' || typeof value.id !== 'string') {
+    return false;
+  }
+
+  const timestamp = new Date(value.t);
+  return (
+    value.id.length > 0 &&
+    Number.isFinite(timestamp.getTime()) &&
+    timestamp.toISOString() === value.t
+  );
+}
 
 /**
  * Serviço responsável pela gestão de comentários nos incidentes.
@@ -88,13 +127,13 @@ export class CommentsService {
    * Lista comentários principais de um incidente com as respostas visíveis aninhadas.
    * @param {string} incidentId id do incidente
    * @param {CommentsQueryDto} query parâmetros de paginação
-   * @returns {Promise<{ data: ReturnCommentDto[]; page: number; limit: number; hasNextPage: boolean }>} árvore de comentários paginada
+   * @returns {Promise<CursorPage<ReturnCommentDto>>} árvore de comentários paginada
    * @throws {NotFoundException} se o incidente não existir ou estiver removido
    */
   async findAll(
     incidentId: string,
     query: CommentsQueryDto,
-  ): Promise<Paginated<ReturnCommentDto>> {
+  ): Promise<CursorPage<ReturnCommentDto>> {
     const incident = await this.incidentsRepository.findUnique({
       id: incidentId,
     });
@@ -106,15 +145,18 @@ export class CommentsService {
       throw new NotFoundException('Incidente não encontrado');
     }
 
-    const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const skip = (page - 1) * limit;
+    const cursor =
+      query.cursor !== undefined
+        ? decodeCursor(query.cursor, isCommentCursor)
+        : undefined;
 
-    const topLevelComments = await this.commentRepository.findTopLevelPage(
-      incidentId,
-      skip,
-      limit + 1,
-    );
+    const topLevelComments =
+      await this.commentRepository.findTopLevelAfterCursor(
+        incidentId,
+        cursor ? { createdAt: new Date(cursor.t), id: cursor.id } : undefined,
+        limit + 1,
+      );
 
     const hasNextPage = topLevelComments.length > limit;
     const commentsPage = topLevelComments.slice(0, limit);
@@ -138,12 +180,16 @@ export class CommentsService {
       this.toReturnCommentDto(comment, repliesByParent.get(comment.id) ?? []),
     );
 
-    return {
-      data,
-      page,
-      limit,
-      hasNextPage,
-    };
+    const lastComment = commentsPage.at(-1);
+    const nextCursor =
+      hasNextPage && lastComment
+        ? encodeCursor({
+            t: lastComment.createdAt.toISOString(),
+            id: lastComment.id,
+          })
+        : null;
+
+    return { data, nextCursor, hasNextPage };
   }
 
   /**

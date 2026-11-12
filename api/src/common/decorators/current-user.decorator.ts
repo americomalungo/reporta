@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { DecodedIdToken } from 'firebase-admin/auth';
 import { Request } from 'express';
-import { User } from '@/generated/prisma';
+import type { User } from '@/src/common/types/entities.types';
 
 export type AuthenticatedRequest = Request & {
   user: DecodedIdToken;

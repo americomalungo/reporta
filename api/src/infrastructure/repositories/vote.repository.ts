@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, Vote, VoteType } from '@/generated/prisma';
-import { isPrismaError } from '@/src/common/utils/prisma-errors';
+import { isPrismaError } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -192,6 +192,9 @@ export class VoteRepository {
         };
       });
     } catch (error) {
+      if (isPrismaError(error, 'P2025')) {
+        throw new NotFoundException('Incidente não encontrado');
+      }
       if (isPrismaError(error, 'P2002')) {
         throw new ConflictException('Voto em processamento, tente novamente');
       }
@@ -207,55 +210,62 @@ export class VoteRepository {
    * @throws {NotFoundException} se o utilizador ainda não tiver votado
    */
   async removeVote(incidentId: string, userId: string): Promise<VoteResult> {
-    return this.prismaService.$transaction(async (tx) => {
-      const existingVote = await tx.vote.findUnique({
-        where: {
-          incidentId_userId: {
+    try {
+      return await this.prismaService.$transaction(async (tx) => {
+        const existingVote = await tx.vote.findUnique({
+          where: {
+            incidentId_userId: {
+              incidentId,
+              userId,
+            },
+          },
+        });
+
+        if (!existingVote) {
+          throw new NotFoundException('Ainda não votou neste incidente');
+        }
+
+        const deletedVote = await tx.vote.deleteMany({
+          where: {
             incidentId,
             userId,
+            type: existingVote.type,
           },
-        },
-      });
+        });
 
-      if (!existingVote) {
-        throw new NotFoundException('Ainda não votou neste incidente');
+        if (deletedVote.count === 0) {
+          throw new ConflictException('Voto em processamento, tente novamente');
+        }
+
+        const updateData: Prisma.IncidentUpdateInput =
+          existingVote.type === VoteType.CONFIRM
+            ? {
+                confirmCount: { decrement: 1 },
+              }
+            : {
+                disconfirmCount: { decrement: 1 },
+              };
+
+        const updatedIncident = await tx.incident.update({
+          where: { id: incidentId },
+          data: updateData,
+          select: {
+            confirmCount: true,
+            disconfirmCount: true,
+          },
+        });
+
+        return {
+          myVote: null,
+          confirmCount: updatedIncident.confirmCount,
+          disconfirmCount: updatedIncident.disconfirmCount,
+        };
+      });
+    } catch (error) {
+      if (isPrismaError(error, 'P2025')) {
+        throw new NotFoundException('Incidente não encontrado');
       }
-
-      const deletedVote = await tx.vote.deleteMany({
-        where: {
-          incidentId,
-          userId,
-          type: existingVote.type,
-        },
-      });
-
-      if (deletedVote.count === 0) {
-        throw new ConflictException('Voto em processamento, tente novamente');
-      }
-
-      const updateData: Prisma.IncidentUpdateInput =
-        existingVote.type === VoteType.CONFIRM
-          ? {
-              confirmCount: { decrement: 1 },
-            }
-          : {
-              disconfirmCount: { decrement: 1 },
-            };
-
-      const updatedIncident = await tx.incident.update({
-        where: { id: incidentId },
-        data: updateData,
-        select: {
-          confirmCount: true,
-          disconfirmCount: true,
-        },
-      });
-
-      return {
-        myVote: null,
-        confirmCount: updatedIncident.confirmCount,
-        disconfirmCount: updatedIncident.disconfirmCount,
-      };
-    });
+      throw error;
+    }
   }
 }

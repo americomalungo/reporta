@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { IncidentStatus, User } from '@/generated/prisma';
+import { IncidentStatus } from '@/src/common/enums/incidents.enums';
+import type { User } from '@/src/common/types/entities.types';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
 import { VoteIncidentDto } from '../dto/vote-incident.dto';

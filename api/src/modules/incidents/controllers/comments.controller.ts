@@ -7,9 +7,9 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import type { User } from '@/generated/prisma';
+import type { User } from '@/src/common/types/entities.types';
 import { CurrentDbUser } from '@/src/common/decorators/current-user.decorator';
-import { Paginated } from '@/src/common/types/pagination.types';
+import type { CursorPage } from '@/src/common/types/pagination.types';
 import { CommentsQueryDto } from '../dto/comments-query.dto';
 import { CreateCommentDto } from '../dto/create-comment.dto';
 import { ReturnCommentDto } from '../dto/return-comment.dto';
@@ -42,13 +42,13 @@ export class CommentsController {
    * Lista os comentários visíveis do incidente.
    * @param {string} incidentId id do incidente
    * @param {CommentsQueryDto} query paginação da listagem
-   * @returns {Promise<{ data: ReturnCommentDto[]; page: number; limit: number; hasNextPage: boolean }>} comentários paginados
+   * @returns {Promise<CursorPage<ReturnCommentDto>>} comentários paginados
    */
   @Get()
   findAll(
     @Param('incidentId') incidentId: string,
     @Query() query: CommentsQueryDto,
-  ): Promise<Paginated<ReturnCommentDto>> {
+  ): Promise<CursorPage<ReturnCommentDto>> {
     return this.commentsService.findAll(incidentId, query);
   }
 
