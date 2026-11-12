@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CategoryRepository } from '@/src/infrastructure/repositories/category.repository';
+import type { UpdateCategoryData } from '@/src/common/types/categories.types';
 import { DecodedIdToken } from 'firebase-admin/auth';
 import { UserRole } from '@/src/common/enums/users.enums';
 import { ReturnCategoryDto } from '../dto/return-category.dto';
@@ -21,7 +22,7 @@ export class CategoryService {
    */
   async create(dto: CreateCategoryDto): Promise<ReturnCategoryDto> {
     const name = this.normalizeName(dto.name);
-    return this.repository.create({
+    return this.repository.createCategory({
       name,
       description: dto.description,
       icon: dto.icon,
@@ -38,9 +39,9 @@ export class CategoryService {
    * @returns {Promise<ReturnCategoryDto[]>} categorias visíveis ao utilizador
    */
   async findAll(user: DecodedIdToken): Promise<ReturnCategoryDto[]> {
-    const where = user.role === UserRole.ADMIN ? {} : { isActive: true };
-
-    const categories = await this.repository.findMany(where);
+    const categories = await this.repository.listCategories(
+      user.role === UserRole.ADMIN,
+    );
 
     return categories.map((category) => ({
       id: category.id,
@@ -65,9 +66,10 @@ export class CategoryService {
     currentUser: DecodedIdToken,
     id: string,
   ): Promise<ReturnCategoryDto> {
-    const where =
-      currentUser.role === UserRole.ADMIN ? { id } : { id, isActive: true };
-    const category = await this.repository.findUnique(where);
+    const category =
+      currentUser.role === UserRole.ADMIN
+        ? await this.repository.findById(id)
+        : await this.repository.findActiveById(id);
     if (!category) {
       throw new NotFoundException('Categoria não encontrada');
     }
@@ -84,14 +86,14 @@ export class CategoryService {
   }
 
   async update(
-    where: { id: string },
+    id: string,
     updateCategoryDto: UpdateCategoryDto,
   ): Promise<ReturnCategoryDto> {
     const name =
       updateCategoryDto.name === undefined
         ? undefined
         : this.normalizeName(updateCategoryDto.name);
-    const data = {
+    const updateData: UpdateCategoryData = {
       ...(name !== undefined && { name, slug: this.generateSlug(name) }),
       ...(updateCategoryDto.description !== undefined && {
         description: updateCategoryDto.description,
@@ -109,7 +111,7 @@ export class CategoryService {
         isActive: updateCategoryDto.isActive,
       }),
     };
-    return this.repository.update(where, data);
+    return this.repository.updateCategory(id, updateData);
   }
 
   private normalizeName(name: string): string {

@@ -1,6 +1,5 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { Incident, Prisma } from '@/generated/prisma';
-import type { IncidentMedia } from '@/src/common/types/entities.types';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { isPrismaError } from '../prisma/prisma-errors';
@@ -121,6 +120,10 @@ export interface IncidentRiskAlertData {
  */
 @Injectable()
 export class IncidentsRepository {
+  /**
+   * Cria o repository de incidentes.
+   * @param {PrismaService} prismaService acesso à base de dados
+   */
   constructor(private readonly prismaService: PrismaService) {}
 
   /**
@@ -129,6 +132,7 @@ export class IncidentsRepository {
    * @param {IncidentSearchCursor | undefined} cursor posição a partir da qual continuar a pesquisa
    * @param {number} take quantidade máxima de registros a devolver
    * @returns {Promise<IncidentSearchRow[]>} ids dos incidentes com distância calculada quando aplicável
+   * @throws {Error} se a consulta de pesquisa falhar
    */
   async searchIds(
     filters: {
@@ -237,6 +241,7 @@ export class IncidentsRepository {
    * Cria um incidente e persiste a sua localização em PostGIS.
    * @param {CreateIncidentData} data dados do incidente e da geolocalização
    * @returns {Promise<string>} identificador do incidente criado
+   * @throws {Error} se a inserção do incidente ou da localização falhar
    */
   async createWithLocation(data: CreateIncidentData): Promise<string> {
     const id = randomUUID();
@@ -270,19 +275,6 @@ export class IncidentsRepository {
   }
 
   /**
-   * Cria um registo de mídia associado a um incidente.
-   * @param {Prisma.IncidentMediaCreateInput} data payload de criação de mídia
-   * @returns {Promise<Prisma.IncidentMedia>} registo criado
-   */
-  async createIncidentMedia(
-    data: Prisma.IncidentMediaCreateInput,
-  ): Promise<IncidentMedia> {
-    return this.prismaService.incidentMedia.create({
-      data,
-    });
-  }
-
-  /**
    * Busca vários incidentes pelos ids informados.
    * @param {string[]} ids identificadores dos incidentes
    * @returns {Promise<Incident[]>} incidentes encontrados na ordem do banco
@@ -301,23 +293,23 @@ export class IncidentsRepository {
   }
 
   /**
-   * Busca o primeiro incidente que satisfaz o critério informado.
-   * @param {Prisma.IncidentWhereInput} where filtro de busca
-   * @returns {Promise<Incident | null>} incidente encontrado ou nulo
+   * Procura um incidente pelo identificador.
+   * @param {string} id identificador do incidente
+   * @returns {Promise<Incident | null>} incidente encontrado ou null
    */
-  async findFirst(where: Prisma.IncidentWhereInput): Promise<Incident | null> {
-    return this.prismaService.incident.findFirst({ where });
+  async findById(id: string): Promise<Incident | null> {
+    return this.prismaService.incident.findUnique({ where: { id } });
   }
 
   /**
-   * Busca um incidente por chave única.
-   * @param {Prisma.IncidentWhereUniqueInput} where critério único
-   * @returns {Promise<Incident | null>} incidente encontrado ou nulo
+   * Procura um incidente visível, excluindo os estados removido e eliminado.
+   * @param {string} id identificador do incidente
+   * @returns {Promise<Incident | null>} incidente visível encontrado ou null
    */
-  async findUnique(
-    where: Prisma.IncidentWhereUniqueInput,
-  ): Promise<Incident | null> {
-    return this.prismaService.incident.findUnique({ where });
+  async findVisibleById(id: string): Promise<Incident | null> {
+    return this.prismaService.incident.findFirst({
+      where: { id, status: { notIn: ['REMOVED', 'DELETED'] } },
+    });
   }
 
   /**
@@ -379,17 +371,22 @@ export class IncidentsRepository {
   }
 
   /**
-   * Atualiza um incidente.
-   * @param {Prisma.IncidentWhereUniqueInput} where critério de identificação
-   * @param {Prisma.IncidentUpdateInput} data campos a atualizar
+   * Marca um incidente como eliminado e regista quem executou a ação.
+   * @param {string} id identificador do incidente
+   * @param {string} actorId identificador do utilizador que executa a ação
    * @returns {Promise<Incident>} incidente atualizado
+   * @throws {NotFoundException} se o incidente não existir
    */
-  async update(
-    where: Prisma.IncidentWhereUniqueInput,
-    data: Prisma.IncidentUpdateInput,
-  ): Promise<Incident> {
+  async markDeleted(id: string, actorId: string): Promise<Incident> {
     try {
-      return await this.prismaService.incident.update({ where, data });
+      return await this.prismaService.incident.update({
+        where: { id },
+        data: {
+          status: 'DELETED',
+          removedAt: new Date(),
+          removedBy: actorId,
+        },
+      });
     } catch (error) {
       if (isPrismaError(error, 'P2025')) {
         throw new NotFoundException('Incidente não encontrado');

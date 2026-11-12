@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
+import type { UpdateUserData } from '@/src/common/types/users.types';
 import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
 import { CreateUserDto } from './dto/create-user.dto';
 import { PublicUserDto } from './dto/public-user.dto';
@@ -27,9 +28,7 @@ export class UsersService {
    * @returns {Promise<ReturnUserDto>}
    */
   async me(currentUser: DecodedIdToken): Promise<ReturnUserDto> {
-    const user = await this.repository.findUnique({
-      firebaseUid: currentUser.uid,
-    });
+    const user = await this.repository.findByFirebaseUid(currentUser.uid);
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -79,7 +78,7 @@ export class UsersService {
           }
         : undefined;
 
-    const existing = await this.repository.findUnique({ firebaseUid });
+    const existing = await this.repository.findByFirebaseUid(firebaseUid);
     if (existing) {
       throw new ConflictException('Utilizador já registado');
     }
@@ -95,7 +94,7 @@ export class UsersService {
     };
 
     await this.authService.setRole(firebaseUid, UserRole.USER);
-    const user = await this.repository.create(
+    const user = await this.repository.createUser(
       data,
       lastLocation?.latitude,
       lastLocation?.longitude,
@@ -123,9 +122,7 @@ export class UsersService {
     user: DecodedIdToken,
   ): Promise<ReturnUserDto[] | PublicUserDto[]> {
     const isAdmin = user.role === UserRole.ADMIN;
-    const users = await this.repository.findMany(
-      isAdmin ? {} : { status: AccountStatus.ACTIVE },
-    );
+    const users = await this.repository.listUsers(isAdmin);
 
     if (!isAdmin) {
       return users.map((u) => ({
@@ -155,9 +152,9 @@ export class UsersService {
    */
   async findOne(
     currentUser: DecodedIdToken,
-    param: { id: string },
+    id: string,
   ): Promise<ReturnUserDto | PublicUserDto> {
-    const user = await this.repository.findUnique(param);
+    const user = await this.repository.findById(id);
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -206,7 +203,7 @@ export class UsersService {
    * @returns {Promise<ReturnUserDto>}
    */
   async update(
-    where: { id: string },
+    id: string,
     dto: UpdateUserDto,
     currentUser: DecodedIdToken,
   ): Promise<ReturnUserDto> {
@@ -225,7 +222,7 @@ export class UsersService {
           }
         : undefined;
 
-    const targetUser = await this.repository.findUnique(where);
+    const targetUser = await this.repository.findById(id);
 
     if (!targetUser) {
       throw new NotFoundException('User not found');
@@ -237,14 +234,14 @@ export class UsersService {
       throw new ForbiddenException('Não autorizado');
     }
 
-    const userData: UpdateUserDto = {
+    const userData: UpdateUserData = {
       name: dto.name,
       avatarUrl: dto.avatarUrl,
       phone: dto.phone,
       alertsEnabled: dto.alertsEnabled,
       alertRadiusM: dto.alertRadiusM,
     };
-    const user = await this.repository.update(where, userData);
+    const user = await this.repository.updateProfile(id, userData);
     if (lastLocation) {
       await this.repository.setLastLocation(
         user.id,
@@ -271,10 +268,10 @@ export class UsersService {
    * @returns {Promise<{ message: string }>}
    */
   async remove(
-    where: { id: string },
+    id: string,
     currentUser: DecodedIdToken,
   ): Promise<{ message: string }> {
-    const targetUser = await this.repository.findUnique(where);
+    const targetUser = await this.repository.findById(id);
 
     if (!targetUser) {
       throw new NotFoundException('Usuário não encontrado');
@@ -290,7 +287,7 @@ export class UsersService {
     const actor =
       targetUser.firebaseUid === currentUser.uid
         ? targetUser
-        : await this.repository.findUnique({ firebaseUid: currentUser.uid });
+        : await this.repository.findByFirebaseUid(currentUser.uid);
     if (!actor) {
       throw new ForbiddenException(
         'O utilizador que executa a ação não foi encontrado',
@@ -298,30 +295,15 @@ export class UsersService {
     }
 
     const originalFirebaseUid = targetUser.firebaseUid;
-    const statusChangedAt = new Date();
-    const dataToUpdate = {
-      firebaseUid: `deleted_${targetUser.id}`,
-      email: `deleted+${targetUser.id}@reporta.com`,
-      name: 'Utilizador removido',
-      avatarUrl: null,
-      phone: null,
-      alertsEnabled: false,
-      status: AccountStatus.DELETED,
-      statusChangedAt,
-      statusChangedBy: actor.id,
-    };
-
     try {
       await this.authService.disableUser(originalFirebaseUid);
       await this.authService.revokeUserSessions(originalFirebaseUid);
-      await this.repository.softDeleteUser(where, dataToUpdate, {
-        fromStatus: targetUser.status,
-        toStatus: AccountStatus.DELETED,
-        changedBy: actor.id,
-        user: { connect: { id: targetUser.id } },
+      await this.repository.softDelete(id, {
+        actorId: actor.id,
+        reason: 'Pedido de remoção da conta',
       });
       return {
-        message: `Usuário com id ${where.id} removido com sucesso.`,
+        message: `Usuário com id ${id} removido com sucesso.`,
       };
     } catch (error) {
       try {

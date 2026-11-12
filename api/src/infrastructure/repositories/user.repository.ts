@@ -1,18 +1,39 @@
-import { PrismaService } from '../prisma/prisma.service';
-import { Prisma, User } from '@/generated/prisma';
 import {
-  ConflictException,
   Injectable,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
+import { AccountStatus, User } from '@/generated/prisma';
+import type {
+  CreateUserData,
+  SoftDeleteUserOptions,
+  UpdateUserData,
+  UserLocation,
+} from '@/src/common/types/users.types';
+import { PrismaService } from '../prisma/prisma.service';
 import { isPrismaError } from '../prisma/prisma-errors';
 
+/**
+ * Persiste e consulta utilizadores e os seus dados associados.
+ */
 @Injectable()
 export class UserRepository {
+  /**
+   * Cria o repository de utilizadores.
+   * @param {PrismaService} prismaService acesso à base de dados
+   */
   constructor(private readonly prismaService: PrismaService) {}
 
-  async create(
-    data: Prisma.UserCreateInput,
+  /**
+   * Cria um utilizador e, opcionalmente, guarda a sua localização inicial.
+   * @param {CreateUserData} data dados do perfil e da conta Firebase
+   * @param {number | undefined} latitude latitude inicial opcional
+   * @param {number | undefined} longitude longitude inicial opcional
+   * @returns {Promise<User>} utilizador persistido
+   * @throws {ConflictException} se email ou identificador Firebase já estiver registado
+   */
+  async createUser(
+    data: CreateUserData,
     latitude?: number,
     longitude?: number,
   ): Promise<User> {
@@ -29,7 +50,7 @@ export class UserRepository {
         }
         return user;
       });
-    } catch (error) {
+    } catch (error: unknown) {
       if (isPrismaError(error, 'P2002')) {
         throw new ConflictException('Utilizador já registado');
       }
@@ -38,11 +59,62 @@ export class UserRepository {
   }
 
   /**
+   * Procura um utilizador pelo identificador Firebase.
+   * @param {string} firebaseUid identificador do utilizador no Firebase
+   * @returns {Promise<User | null>} utilizador encontrado ou null
+   */
+  async findByFirebaseUid(firebaseUid: string): Promise<User | null> {
+    return this.prismaService.user.findUnique({ where: { firebaseUid } });
+  }
+
+  /**
+   * Procura um utilizador pelo identificador interno.
+   * @param {string} id identificador interno do utilizador
+   * @returns {Promise<User | null>} utilizador encontrado ou null
+   */
+  async findById(id: string): Promise<User | null> {
+    return this.prismaService.user.findUnique({ where: { id } });
+  }
+
+  /**
+   * Lista utilizadores, podendo incluir estados não ativos para administração.
+   * @param {boolean} includeInactive indica se os estados não ativos são incluídos
+   * @returns {Promise<User[]>} utilizadores encontrados por ordem de criação
+   */
+  async listUsers(includeInactive: boolean): Promise<User[]> {
+    return this.prismaService.user.findMany({
+      where: includeInactive ? undefined : { status: AccountStatus.ACTIVE },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Atualiza apenas os campos editáveis do perfil.
+   * @param {string} id identificador interno do utilizador
+   * @param {UpdateUserData} data campos de perfil a atualizar
+   * @returns {Promise<User>} utilizador atualizado
+   * @throws {NotFoundException} se o utilizador não existir
+   */
+  async updateProfile(id: string, data: UpdateUserData): Promise<User> {
+    try {
+      return await this.prismaService.user.update({
+        where: { id },
+        data,
+      });
+    } catch (error: unknown) {
+      if (isPrismaError(error, 'P2025')) {
+        throw new NotFoundException('Utilizador não encontrado');
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Atualiza a última localização conhecida do utilizador.
-   * @param {string} userId id do utilizador
+   * @param {string} userId identificador interno do utilizador
    * @param {number} latitude latitude em graus decimais
    * @param {number} longitude longitude em graus decimais
-   * @returns {Promise<Date>} data de atualização persistida pela base de dados
+   * @returns {Promise<Date>} data da localização persistida
    * @throws {NotFoundException} se o utilizador não existir
    */
   async setLastLocation(
@@ -59,14 +131,16 @@ export class UserRepository {
       WHERE id = ${userId}
       RETURNING "lastLocationAt"
     `;
-
     const location = locations[0];
-    if (!location) {
-      throw new NotFoundException('Utilizador não encontrado');
-    }
+    if (!location) throw new NotFoundException('Utilizador não encontrado');
     return location.lastLocationAt;
   }
 
+  /**
+   * Apaga a localização guardada do utilizador.
+   * @param {string} userId identificador interno do utilizador
+   * @returns {Promise<void>} conclusão da remoção da localização
+   */
   async clearLastLocation(userId: string): Promise<void> {
     await this.prismaService.$executeRaw`
       UPDATE users
@@ -76,24 +150,13 @@ export class UserRepository {
     `;
   }
 
-  private async clearLastLocationInTransaction(
-    userId: string,
-    transaction: Prisma.TransactionClient,
-  ): Promise<void> {
-    await transaction.$executeRaw`
-      UPDATE users
-      SET "lastLocation" = NULL,
-          "lastLocationAt" = NULL
-      WHERE id = ${userId}
-    `;
-  }
-
-  async getLastLocation(
-    userId: string,
-  ): Promise<{ latitude: number; longitude: number } | null> {
-    const locations = await this.prismaService.$queryRaw<
-      { latitude: number; longitude: number }[]
-    >`
+  /**
+   * Devolve a localização geográfica guardada do utilizador.
+   * @param {string} userId identificador interno do utilizador
+   * @returns {Promise<UserLocation | null>} coordenadas encontradas ou null
+   */
+  async getLastLocation(userId: string): Promise<UserLocation | null> {
+    const locations = await this.prismaService.$queryRaw<UserLocation[]>`
       SELECT
         ST_Y("lastLocation"::geometry) AS latitude,
         ST_X("lastLocation"::geometry) AS longitude
@@ -103,55 +166,62 @@ export class UserRepository {
     return locations[0] ?? null;
   }
 
-  async findMany(where?: Prisma.UserWhereInput) {
-    return await this.prismaService.user.findMany({
-      where,
-    });
-  }
-
-  async findFirst(where: Prisma.UserWhereInput) {
-    return this.prismaService.user.findFirst({
-      where,
-    });
-  }
-
-  async findUnique(where: Prisma.UserWhereUniqueInput) {
-    return await this.prismaService.user.findUnique({
-      where,
-    });
-  }
-
-  async update(
-    where: Prisma.UserWhereUniqueInput,
-    data: Prisma.UserUpdateInput,
-  ) {
-    try {
-      return await this.prismaService.user.update({ where, data });
-    } catch (error) {
-      if (isPrismaError(error, 'P2025')) {
-        throw new NotFoundException('Utilizador não encontrado');
-      }
-      throw error;
-    }
-  }
-
-  async softDeleteUser(
-    where: Prisma.UserWhereUniqueInput,
-    data: Prisma.UserUpdateInput,
-    statusHistory: Prisma.UserStatusHistoryCreateInput,
-  ): Promise<User> {
+  /**
+   * Remove logicamente um utilizador e regista o histórico numa transação.
+   * @param {string} id identificador interno do utilizador
+   * @param {SoftDeleteUserOptions} options ator e motivo da remoção
+   * @returns {Promise<User>} utilizador anonimizado e marcado como removido
+   * @throws {NotFoundException} se o utilizador não existir
+   */
+  async softDelete(id: string, options: SoftDeleteUserOptions): Promise<User> {
     try {
       return await this.prismaService.$transaction(async (transaction) => {
-        const user = await transaction.user.update({ where, data });
-        await this.clearLastLocationInTransaction(user.id, transaction);
+        const currentUser = await transaction.user.findUnique({
+          where: { id },
+          select: { status: true },
+        });
+        if (!currentUser) {
+          throw new NotFoundException('Utilizador não encontrado');
+        }
+
+        const deletedAt = new Date();
+        const user = await transaction.user.update({
+          where: { id },
+          data: {
+            firebaseUid: `deleted_${id}`,
+            email: `deleted+${id}@reporta.com`,
+            name: 'Utilizador removido',
+            avatarUrl: null,
+            phone: null,
+            alertsEnabled: false,
+            status: AccountStatus.DELETED,
+            statusReason: options.reason ?? null,
+            statusChangedAt: deletedAt,
+            statusChangedBy: options.actorId,
+          },
+        });
+        await transaction.$executeRaw`
+          UPDATE users
+          SET "lastLocation" = NULL,
+              "lastLocationAt" = NULL
+          WHERE id = ${id}
+        `;
         await transaction.pushToken.updateMany({
-          where: { userId: user.id },
+          where: { userId: id },
           data: { isActive: false },
         });
-        await this.createUserStatusHistory(statusHistory, transaction);
+        await transaction.userStatusHistory.create({
+          data: {
+            userId: id,
+            fromStatus: currentUser.status,
+            toStatus: AccountStatus.DELETED,
+            changedBy: options.actorId,
+            reason: options.reason,
+          },
+        });
         return user;
       });
-    } catch (error) {
+    } catch (error: unknown) {
       if (isPrismaError(error, 'P2025')) {
         throw new NotFoundException('Utilizador não encontrado');
       }
@@ -159,19 +229,19 @@ export class UserRepository {
     }
   }
 
-  private async createUserStatusHistory(
-    data: Prisma.UserStatusHistoryCreateInput,
-    transaction: Prisma.TransactionClient,
-  ): Promise<void> {
-    await transaction.userStatusHistory.create({
-      data,
-    });
-  }
-
-  async deleteUserInterestZone(where: Prisma.UserInterestZoneWhereUniqueInput) {
+  /**
+   * Remove uma zona de interesse pertencente ao utilizador indicado.
+   * @param {string} userId identificador do proprietário da zona
+   * @param {string} zoneId identificador da zona de interesse
+   * @returns {Promise<void>} conclusão da remoção
+   * @throws {NotFoundException} se a zona não pertencer ao utilizador ou não existir
+   */
+  async deleteInterestZone(userId: string, zoneId: string): Promise<void> {
     try {
-      return await this.prismaService.userInterestZone.delete({ where });
-    } catch (error) {
+      await this.prismaService.userInterestZone.delete({
+        where: { id: zoneId, userId },
+      });
+    } catch (error: unknown) {
       if (isPrismaError(error, 'P2025')) {
         throw new NotFoundException('Zona de interesse não encontrada');
       }

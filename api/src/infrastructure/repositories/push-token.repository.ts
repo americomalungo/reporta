@@ -35,13 +35,13 @@ export class PushTokenRepository {
             userId: data.userId,
             token: data.token,
             platform: data.platform,
-            deviceId: data.deviceId,
+            deviceId: data.deviceId ?? null,
             isActive: true,
           },
           update: {
             userId: data.userId,
             platform: data.platform,
-            deviceId: data.deviceId,
+            deviceId: data.deviceId ?? null,
             isActive: true,
           },
         });

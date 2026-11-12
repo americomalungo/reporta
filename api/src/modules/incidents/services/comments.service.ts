@@ -80,9 +80,7 @@ export class CommentsService {
     user: User,
     dto: CreateCommentDto,
   ): Promise<ReturnCommentDto> {
-    const incident = await this.incidentsRepository.findUnique({
-      id: incidentId,
-    });
+    const incident = await this.incidentsRepository.findVisibleById(incidentId);
 
     if (
       !incident ||
@@ -113,7 +111,7 @@ export class CommentsService {
       parentId = parentComment.id;
     }
 
-    const createdComment = await this.commentRepository.create({
+    const createdComment = await this.commentRepository.createComment({
       incidentId,
       userId: user.id,
       content: dto.content,
@@ -134,9 +132,7 @@ export class CommentsService {
     incidentId: string,
     query: CommentsQueryDto,
   ): Promise<CursorPage<ReturnCommentDto>> {
-    const incident = await this.incidentsRepository.findUnique({
-      id: incidentId,
-    });
+    const incident = await this.incidentsRepository.findVisibleById(incidentId);
     if (
       !incident ||
       incident.status === IncidentStatus.REMOVED ||
@@ -206,9 +202,7 @@ export class CommentsService {
     commentId: string,
     user: User,
   ): Promise<{ message: string }> {
-    const incident = await this.incidentsRepository.findUnique({
-      id: incidentId,
-    });
+    const incident = await this.incidentsRepository.findVisibleById(incidentId);
     if (
       !incident ||
       incident.status === IncidentStatus.REMOVED ||

@@ -73,6 +73,8 @@ export class ReturnIncidentDto {
    * Voto atual do utilizador autenticado, se existir.
    */
   myVote: VoteTypeEnum | null;
-  /** Fotos associadas ao incidente, ordenadas pela posição e data de criação. */
+  /**
+   * Fotos associadas ao incidente, ordenadas por sortOrder e data de criação.
+   */
   media: ReturnMediaDto[];
 }

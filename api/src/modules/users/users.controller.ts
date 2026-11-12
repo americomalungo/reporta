@@ -46,7 +46,7 @@ export class UsersController {
     @CurrentUser() user: DecodedIdToken,
     @Param('id') id: string,
   ): Promise<ReturnUserDto | PublicUserDto> {
-    return this.usersService.findOne(user, { id: id });
+    return this.usersService.findOne(user, id);
   }
 
   @Patch(':id')
@@ -55,7 +55,7 @@ export class UsersController {
     @Body() updateUserDto: UpdateUserDto,
     @CurrentUser() currentUser: DecodedIdToken,
   ): Promise<ReturnUserDto> {
-    return this.usersService.update({ id: id }, updateUserDto, currentUser);
+    return this.usersService.update(id, updateUserDto, currentUser);
   }
 
   @Delete(':id')
@@ -63,6 +63,6 @@ export class UsersController {
     @Param('id') id: string,
     @CurrentUser() currentUser: DecodedIdToken,
   ): Promise<{ message: string }> {
-    return this.usersService.remove({ id }, currentUser);
+    return this.usersService.remove(id, currentUser);
   }
 }

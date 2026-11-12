@@ -1,19 +1,18 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { DecodedIdToken } from 'firebase-admin/auth';
-import { IncidentStatus } from '@/src/common/enums/incidents.enums';
 import type { Incident, User } from '@/src/common/types/entities.types';
 import type { IncidentSearchCursor } from '@/src/common/types/incidents.types';
+import { IncidentStatus } from '@/src/common/enums/incidents.enums';
 import { CategoryRepository } from '@/src/infrastructure/repositories/category.repository';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { IncidentMediaRepository } from '@/src/infrastructure/repositories/incident-media.repository';
-import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
 import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
 import { AlertsService } from '@/src/modules/alerts/alerts.service';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
@@ -65,7 +64,6 @@ export class IncidentsService {
   constructor(
     private readonly incidentsRepository: IncidentsRepository,
     private readonly incidentMediaRepository: IncidentMediaRepository,
-    private readonly userRepository: UserRepository,
     private readonly categoryRepository: CategoryRepository,
     private readonly voteRepository: VoteRepository,
     private readonly alertsService: AlertsService,
@@ -94,9 +92,7 @@ export class IncidentsService {
       );
     }
 
-    const category = await this.categoryRepository.findUnique({
-      id: dto.categoryId,
-    });
+    const category = await this.categoryRepository.findById(dto.categoryId);
     if (!category || !category.isActive) {
       throw new NotFoundException('Categoria não encontrada ou inativa');
     }
@@ -253,11 +249,8 @@ export class IncidentsService {
     isAdmin: boolean,
   ): Promise<ReturnIncidentDto> {
     const incident = isAdmin
-      ? await this.incidentsRepository.findUnique({ id })
-      : await this.incidentsRepository.findFirst({
-          id,
-          status: { notIn: [IncidentStatus.REMOVED, IncidentStatus.DELETED] },
-        });
+      ? await this.incidentsRepository.findById(id)
+      : await this.incidentsRepository.findVisibleById(id);
     if (!incident) {
       throw new NotFoundException('Incidente não encontrado');
     }
@@ -268,46 +261,42 @@ export class IncidentsService {
   /**
    * Remove um incidente como soft-delete.
    * @param {string} id id do incidente
-   * @param {DecodedIdToken} currentUser utilizador autenticado do Firebase
+   * @param {User} user utilizador autenticado carregado da base de dados
    * @returns {Promise<{ message: string }>} mensagem de confirmação
-   * @throws {NotFoundException} se o incidente não existir
+   * @throws {NotFoundException} se o incidente não existir ou não puder ser removido pelo autor
    * @throws {ForbiddenException} se o utilizador não tiver permissão
+   * @throws {ConflictException} se um administrador tentar remover um incidente já eliminado
    */
-  async remove(
-    id: string,
-    currentUser: DecodedIdToken,
-  ): Promise<{ message: string }> {
-    const incident = await this.incidentsRepository.findUnique({ id });
+  async remove(id: string, user: User): Promise<{ message: string }> {
+    const incident = await this.incidentsRepository.findById(id);
     if (!incident) {
       throw new NotFoundException('Incidente não encontrado');
     }
 
-    const actor = await this.userRepository.findUnique({
-      firebaseUid: currentUser.uid,
-    });
-    if (!actor) {
-      throw new ForbiddenException('Utilizador não encontrado');
-    }
-    if (incident.authorId !== actor.id && currentUser.role !== UserRole.ADMIN) {
+    const isAdmin = user.role === UserRole.ADMIN;
+    if (incident.authorId !== user.id && !isAdmin) {
       throw new ForbiddenException(
         'Não tem permissão para remover este incidente',
       );
     }
+    if (isAdmin && incident.status === IncidentStatus.DELETED) {
+      throw new ConflictException('Incidente já removido');
+    }
+    const authorCanRemove =
+      incident.status === IncidentStatus.ACTIVE ||
+      incident.status === IncidentStatus.EXPIRED ||
+      incident.status === IncidentStatus.UNDER_REVIEW;
+    if (!isAdmin && !authorCanRemove) {
+      throw new NotFoundException('Incidente não encontrado');
+    }
 
-    await this.incidentsRepository.update(
-      { id },
-      {
-        status: IncidentStatus.DELETED,
-        removedAt: new Date(),
-        removedBy: actor.id,
-      },
-    );
+    await this.incidentsRepository.markDeleted(id, user.id);
     return { message: 'Incidente removido com sucesso' };
   }
 
   /**
    * Completa cada incidente com coordenadas e o voto do utilizador atual.
-   * @param {Awaited<ReturnType<IncidentsRepository['findMany']>>} incidents incidentes base
+   * @param {Incident[]} incidents incidentes base
    * @param {string} viewerId id do utilizador autenticado
    * @returns {Promise<ReturnIncidentDto[]>} incidentes enriquecidos com coordenadas e voto
    * @throws {InternalServerErrorException} se a localização não puder ser obtida

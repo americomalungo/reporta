@@ -36,9 +36,7 @@ export class VotesService {
     user: User,
     dto: VoteIncidentDto,
   ): Promise<ReturnVoteDto> {
-    const incident = await this.incidentsRepository.findUnique({
-      id: incidentId,
-    });
+    const incident = await this.incidentsRepository.findById(incidentId);
 
     if (!incident) {
       throw new NotFoundException('Incidente não encontrado');
@@ -88,9 +86,7 @@ export class VotesService {
    * @throws {NotFoundException} se o incidente não existir ou o utilizador ainda não tiver votado
    */
   async removeVote(incidentId: string, user: User): Promise<ReturnVoteDto> {
-    const incident = await this.incidentsRepository.findUnique({
-      id: incidentId,
-    });
+    const incident = await this.incidentsRepository.findById(incidentId);
 
     if (!incident) {
       throw new NotFoundException('Incidente não encontrado');

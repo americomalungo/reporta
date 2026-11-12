@@ -41,6 +41,6 @@ export class CategoriesController {
     @Param('id') id: string,
     @Body() updateCategoryDto: UpdateCategoryDto,
   ): Promise<ReturnCategoryDto> {
-    return this.categoryService.update({ id }, updateCategoryDto);
+    return this.categoryService.update(id, updateCategoryDto);
   }
 }

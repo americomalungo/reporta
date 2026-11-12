@@ -1,4 +1,5 @@
 export type {
+  Category,
   Incident,
   IncidentMedia,
   Notification,

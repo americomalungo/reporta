@@ -7,12 +7,8 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import type { DecodedIdToken } from 'firebase-admin/auth';
 import type { User } from '@/src/common/types/entities.types';
-import {
-  CurrentDbUser,
-  CurrentUser,
-} from '@/src/common/decorators/current-user.decorator';
+import { CurrentDbUser } from '@/src/common/decorators/current-user.decorator';
 import { UserRole } from '@/src/common/enums/users.enums';
 import type { CursorPage } from '@/src/common/types/pagination.types';
 import { CreateIncidentDto } from '../dto/create-incident.dto';
@@ -79,15 +75,19 @@ export class IncidentsController {
 
   /**
    * Remove um incidente por soft-delete.
+   * Método HTTP: DELETE /incidents/:id
    * @param {string} id id do incidente
-   * @param {DecodedIdToken} currentUser utilizador autenticado do Firebase
+   * @param {User} user utilizador autenticado carregado da base de dados
    * @returns {Promise<{ message: string }>} mensagem de confirmação
+   * @throws {NotFoundException} se o incidente não existir ou não puder ser removido pelo autor
+   * @throws {ForbiddenException} se o utilizador não for autor nem administrador
+   * @throws {ConflictException} se um administrador tentar remover um incidente já eliminado
    */
   @Delete(':id')
   remove(
     @Param('id') id: string,
-    @CurrentUser() currentUser: DecodedIdToken,
+    @CurrentDbUser() user: User,
   ): Promise<{ message: string }> {
-    return this.incidentsService.remove(id, currentUser);
+    return this.incidentsService.remove(id, user);
   }
 }

@@ -47,9 +47,7 @@ export class FirebaseAuthGuard implements CanActivate {
       throw new UnauthorizedException('Token inválido ou expirado');
     }
 
-    const user = await this.userRepository.findUnique({
-      firebaseUid: req.user.uid,
-    });
+    const user = await this.userRepository.findByFirebaseUid(req.user.uid);
 
     if (!user) {
       if (allowUnregistered) return true;

@@ -1,8 +1,6 @@
 import { InternalServerErrorException, Injectable } from '@nestjs/common';
-import {
-  IncidentStatus,
-  NotificationType,
-} from '@/src/common/enums/incidents.enums';
+import { IncidentStatus } from '@/src/common/enums/incidents.enums';
+import { NotificationType } from '@/src/common/enums/notifications.enums';
 import {
   AlertRepository,
   type AlertRecipient,
@@ -17,6 +15,8 @@ import { PushTokenRepository } from '@/src/infrastructure/repositories/push-toke
 import { PushSenderService } from '@/src/infrastructure/firebase/push-sender.service';
 
 const RECIPIENT_BATCH_SIZE = 500;
+/** Número máximo de notificações enviadas ao FCM em paralelo. */
+const PUSH_SEND_CONCURRENCY = 20;
 
 /**
  * Coordena os alertas de proximidade e o respetivo envio push.
@@ -132,32 +132,42 @@ export class AlertsService {
     }
 
     const pushSentIds: string[] = [];
-    for (const notification of notifications) {
-      const recipient = recipientByUserId.get(notification.userId);
-      if (!recipient) {
-        throw new InternalServerErrorException(
-          'A notificação criada não corresponde a um destinatário do alerta',
-        );
-      }
+    for (
+      let offset = 0;
+      offset < notifications.length;
+      offset += PUSH_SEND_CONCURRENCY
+    ) {
+      const notificationGroup = notifications.slice(
+        offset,
+        offset + PUSH_SEND_CONCURRENCY,
+      );
+      const groupResults = await Promise.all(
+        notificationGroup.map(async (notification) => {
+          const recipient = recipientByUserId.get(notification.userId);
+          if (!recipient) {
+            throw new InternalServerErrorException(
+              'A notificação criada não corresponde a um destinatário do alerta',
+            );
+          }
 
-      const userTokens = tokensByUserId.get(notification.userId) ?? [];
-      if (userTokens.length === 0) {
-        continue;
-      }
+          const userTokens = tokensByUserId.get(notification.userId) ?? [];
+          if (userTokens.length === 0) return null;
 
-      const result = await this.pushSenderService.sendToTokens(userTokens, {
-        title: notification.title,
-        body: notification.body,
-        data: {
-          incidentId: incident.id,
-          type: NotificationType.RISK_ALERT,
-        },
-      });
-      await this.pushTokenRepository.deactivateTokens(result.invalidTokens);
-
-      if (result.successCount > 0) {
-        pushSentIds.push(notification.id);
-      }
+          const result = await this.pushSenderService.sendToTokens(userTokens, {
+            title: notification.title,
+            body: notification.body,
+            data: {
+              incidentId: incident.id,
+              type: NotificationType.RISK_ALERT,
+            },
+          });
+          await this.pushTokenRepository.deactivateTokens(result.invalidTokens);
+          return result.successCount > 0 ? notification.id : null;
+        }),
+      );
+      pushSentIds.push(
+        ...groupResults.filter((id): id is string => id !== null),
+      );
     }
 
     await this.notificationRepository.markPushSent(pushSentIds);

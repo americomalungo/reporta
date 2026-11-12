@@ -1,4 +1,4 @@
-import type { NotificationType } from '@/src/common/types/incidents.types';
+import type { NotificationType } from '@/src/common/types/notifications.types';
 
 /**
  * Notificação in-app devolvida ao utilizador proprietário.

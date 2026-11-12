@@ -11,23 +11,38 @@ import {
 } from '@nestjs/common';
 import { EnvService } from '../env/env.service';
 
-/** Gere o envio e a remoção de objetos no bucket Cloudflare R2. */
+/**
+ * Gere o envio e a remoção de objetos no bucket Cloudflare R2.
+ */
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
   private readonly client: S3Client;
 
-  /** Cria uma instância do cliente S3 configurada para Cloudflare R2. */
+  /**
+   * Cria uma instância do cliente S3 configurada para Cloudflare R2.
+   * @param {EnvService} env serviço com as credenciais e a configuração do bucket
+   */
   constructor(private readonly env: EnvService) {
     const { accountId, accessKeyId, secretAccessKey } = env.r2;
     this.client = new S3Client({
       region: 'auto',
       endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
       credentials: { accessKeyId, secretAccessKey },
+      // Evita checksums opcionais que o endpoint compatível do R2 pode não suportar.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
   }
 
-  /** Envia um objeto e devolve o respetivo URL público. */
+  /**
+   * Envia um objeto e devolve o respetivo URL público.
+   * @param {string} key chave única do objeto no bucket
+   * @param {Buffer} data conteúdo binário do objeto
+   * @param {string} contentType tipo MIME do objeto
+   * @returns {Promise<string>} URL pública do objeto enviado
+   * @throws {ServiceUnavailableException} se o R2 não aceitar o envio
+   */
   async upload(
     key: string,
     data: Buffer,
@@ -53,7 +68,12 @@ export class StorageService {
     }
   }
 
-  /** Remove as chaves indicadas em lotes de até 1000, ignorando chaves ausentes. */
+  /**
+   * Remove as chaves indicadas em lotes de até 1000, ignorando chaves ausentes.
+   * @param {string[]} keys chaves dos objetos a remover
+   * @returns {Promise<void>} conclusão da remoção
+   * @throws {ServiceUnavailableException} se o R2 não conseguir remover algum objeto
+   */
   async remove(keys: string[]): Promise<void> {
     for (let index = 0; index < keys.length; index += 1000) {
       const objects: ObjectIdentifier[] = keys
@@ -82,7 +102,10 @@ export class StorageService {
     }
   }
 
-  /** Devolve o nome do bucket R2 configurado. */
+  /**
+   * Devolve o nome do bucket R2 configurado.
+   * @returns {string} nome do bucket
+   */
   getBucketName(): string {
     return this.env.r2.bucket;
   }

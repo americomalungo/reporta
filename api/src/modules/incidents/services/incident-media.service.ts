@@ -21,17 +21,29 @@ import {
   type UploadedImageInput,
 } from './image-processor.service';
 
-/** Limite total de fotos permitido por incidente. */
+/**
+ * Limite total de fotos permitido por incidente.
+ */
 export const MAX_MEDIA_PER_INCIDENT = 3;
-/** Limite do ficheiro original recebido pela API, em bytes. */
+/**
+ * Limite do ficheiro original recebido pela API, em bytes.
+ */
 export const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 
-/** Coordena validação, armazenamento e persistência de imagens de incidentes. */
+/**
+ * Coordena validação, armazenamento e persistência de imagens de incidentes.
+ */
 @Injectable()
 export class IncidentMediaService {
   private readonly logger = new Logger(IncidentMediaService.name);
 
-  /** Injeta os repositórios e serviços de processamento e armazenamento. */
+  /**
+   * Injeta os repositórios e serviços de processamento e armazenamento.
+   * @param {IncidentsRepository} incidentsRepository consulta dos incidentes
+   * @param {IncidentMediaRepository} incidentMediaRepository persistência das imagens
+   * @param {ImageProcessorService} imageProcessor validação e conversão das imagens
+   * @param {StorageService} storageService armazenamento dos objetos no R2
+   */
   constructor(
     private readonly incidentsRepository: IncidentsRepository,
     private readonly incidentMediaRepository: IncidentMediaRepository,
@@ -39,7 +51,17 @@ export class IncidentMediaService {
     private readonly storageService: StorageService,
   ) {}
 
-  /** Valida, processa e associa entre uma e três fotos a um incidente ativo. */
+  /**
+   * Valida, processa e associa entre uma e três fotos a um incidente ativo.
+   * @param {User} user utilizador autenticado
+   * @param {string} incidentId identificador do incidente
+   * @param {UploadedImageInput[]} files ficheiros recebidos em memória
+   * @returns {Promise<ReturnMediaDto[]>} imagens persistidas com a sua ordem
+   * @throws {BadRequestException} se não forem enviadas entre uma e três imagens válidas
+   * @throws {NotFoundException} se o incidente não existir ou não estiver acessível ao utilizador
+   * @throws {ConflictException} se o incidente não estiver ativo ou exceder o limite de três fotos
+   * @throws {BadGatewayException} se o envio de algum objeto para o R2 falhar
+   */
   async upload(
     user: User,
     incidentId: string,
@@ -52,9 +74,7 @@ export class IncidentMediaService {
       throw new BadRequestException('Cada imagem deve ter no máximo 5 MB');
     }
 
-    const incident = await this.incidentsRepository.findUnique({
-      id: incidentId,
-    });
+    const incident = await this.incidentsRepository.findById(incidentId);
     if (!incident || incident.status === IncidentStatus.DELETED) {
       throw new NotFoundException('Incidente não encontrado');
     }
@@ -105,15 +125,20 @@ export class IncidentMediaService {
     }));
   }
 
-  /** Apaga a linha da foto e tenta remover o objeto correspondente do R2. */
+  /**
+   * Apaga a linha da foto e tenta remover o objeto correspondente do R2.
+   * @param {User} user utilizador autenticado
+   * @param {string} incidentId identificador do incidente
+   * @param {string} mediaId identificador da imagem
+   * @returns {Promise<{ message: string }>} confirmação da remoção
+   * @throws {NotFoundException} se o incidente ou a imagem não existir ou não estiver acessível
+   */
   async remove(
     user: User,
     incidentId: string,
     mediaId: string,
   ): Promise<{ message: string }> {
-    const incident = await this.incidentsRepository.findUnique({
-      id: incidentId,
-    });
+    const incident = await this.incidentsRepository.findById(incidentId);
     if (
       !incident ||
       incident.status === IncidentStatus.DELETED ||
@@ -140,7 +165,14 @@ export class IncidentMediaService {
     return { message: 'Imagem removida' };
   }
 
-  /** Converte os dados processados para o formato persistido no repository. */
+  /**
+   * Converte os dados processados para o formato persistido no repository.
+   * @param {string} path chave do objeto no bucket
+   * @param {string} url URL pública do objeto
+   * @param {string} bucket nome do bucket R2
+   * @param {ProcessedImage} image conteúdo e metadados da imagem processada
+   * @returns {NewMedia} dados prontos para persistência
+   */
   private toNewMedia(
     path: string,
     url: string,
@@ -158,7 +190,11 @@ export class IncidentMediaService {
     };
   }
 
-  /** Compensa falhas removendo os objetos já enviados para o R2. */
+  /**
+   * Compensa falhas removendo os objetos já enviados para o R2.
+   * @param {NewMedia[]} items objetos enviados durante o pedido
+   * @returns {Promise<void>} conclusão da tentativa de compensação
+   */
   private async removeUploadedObjects(items: NewMedia[]): Promise<void> {
     if (items.length === 0) return;
     try {

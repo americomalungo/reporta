@@ -56,7 +56,7 @@ export class CommentRepository {
    * @param {{ incidentId: string; userId: string; content: string; parentId?: string }} data dados do comentário
    * @returns {Promise<CommentWithAuthor>} comentário criado com o autor incluído
    */
-  async create(data: {
+  async createComment(data: {
     incidentId: string;
     userId: string;
     content: string;
