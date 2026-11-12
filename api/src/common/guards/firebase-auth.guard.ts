@@ -13,14 +13,30 @@ import { UserRepository } from '@/src/infrastructure/repositories/user.repositor
 import { AccountStatus } from '@/src/common/enums/users.enums';
 import { ALLOW_UNREGISTERED_KEY } from '../decorators/allow-unregistered.decorator';
 
+/**
+ * Valida tokens Firebase e associa a conta ativa da base de dados ao pedido.
+ */
 @Injectable()
 export class FirebaseAuthGuard implements CanActivate {
+  /**
+   * Injeta autenticação, acesso ao utilizador e metadados da rota.
+   * @param {AuthService} authService validação de tokens Firebase
+   * @param {UserRepository} userRepository consulta e atualização condicional do utilizador
+   * @param {Reflector} reflector leitura dos metadados de acesso da rota
+   */
   constructor(
     private readonly authService: AuthService,
     private readonly userRepository: UserRepository,
     private readonly reflector: Reflector,
   ) {}
 
+  /**
+   * Autentica o pedido, atualizando suspensões já expiradas antes de autorizar.
+   * @param {ExecutionContext} context contexto atual do pedido Nest
+   * @returns {Promise<boolean>} true quando o pedido pode prosseguir
+   * @throws {UnauthorizedException} se o token estiver ausente ou for inválido
+   * @throws {ForbiddenException} se a conta não estiver registada ou estiver bloqueada
+   */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const targets = [context.getHandler(), context.getClass()];
     const isPublic = this.reflector.getAllAndOverride<boolean>(
@@ -47,13 +63,24 @@ export class FirebaseAuthGuard implements CanActivate {
       throw new UnauthorizedException('Token inválido ou expirado');
     }
 
-    const user = await this.userRepository.findByFirebaseUid(req.user.uid);
+    let user = await this.userRepository.findByFirebaseUid(req.user.uid);
 
     if (!user) {
       if (allowUnregistered) return true;
       throw new ForbiddenException(
         'Conta não registada. Registe-se primeiro para aceder ao recurso.',
       );
+    }
+
+    if (
+      user.status === AccountStatus.SUSPENDED &&
+      user.suspendedUntil !== null &&
+      user.suspendedUntil <= new Date()
+    ) {
+      user = await this.userRepository.liftExpiredSuspension(user.id);
+      if (!user) {
+        throw new ForbiddenException('Utilizador não encontrado');
+      }
     }
 
     if (

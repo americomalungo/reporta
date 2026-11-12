@@ -4,6 +4,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { AccountStatus, User } from '@/generated/prisma';
+import { ModerationAction } from '@/src/common/enums/moderation.enums';
 import type {
   CreateUserData,
   SoftDeleteUserOptions,
@@ -227,6 +228,56 @@ export class UserRepository {
       }
       throw error;
     }
+  }
+
+  /**
+   * Reativa uma suspensão expirada e regista o histórico e a auditoria.
+   * @param {string} id identificador interno do utilizador
+   * @returns {Promise<User | null>} utilizador atualizado ou estado relido após concorrência
+   */
+  async liftExpiredSuspension(id: string): Promise<User | null> {
+    return this.prismaService.$transaction(async (transaction) => {
+      const changedAt = new Date();
+      const result = await transaction.user.updateMany({
+        where: {
+          id,
+          status: AccountStatus.SUSPENDED,
+          suspendedUntil: { lte: changedAt },
+        },
+        data: {
+          status: AccountStatus.ACTIVE,
+          statusReason: null,
+          statusChangedAt: changedAt,
+          statusChangedBy: null,
+          suspendedUntil: null,
+        },
+      });
+
+      if (result.count === 0) {
+        return transaction.user.findUnique({ where: { id } });
+      }
+
+      const reason = 'Suspensão expirada automaticamente';
+      await transaction.userStatusHistory.create({
+        data: {
+          userId: id,
+          fromStatus: AccountStatus.SUSPENDED,
+          toStatus: AccountStatus.ACTIVE,
+          reason,
+          changedBy: null,
+        },
+      });
+      await transaction.moderationLog.create({
+        data: {
+          action: ModerationAction.UNSUSPEND_USER,
+          adminId: null,
+          targetUserId: id,
+          reason,
+          metadata: { auto: true },
+        },
+      });
+      return transaction.user.findUnique({ where: { id } });
+    });
   }
 
   /**

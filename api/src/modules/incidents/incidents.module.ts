@@ -14,6 +14,7 @@ import { IncidentsService } from './services/incidents.service';
 import { VotesService } from './services/votes.service';
 import { UsersModule } from '../users/users.module';
 import { AlertsModule } from '../alerts/alerts.module';
+import { ModerationModule } from '../moderation/moderation.module';
 import {
   IncidentMediaController,
   MulterUploadErrorInterceptor,
@@ -22,7 +23,7 @@ import { IncidentMediaService } from './services/incident-media.service';
 import { ImageProcessorService } from './services/image-processor.service';
 
 @Module({
-  imports: [UsersModule, AlertsModule],
+  imports: [UsersModule, AlertsModule, ModerationModule],
   controllers: [
     IncidentsController,
     CategoriesController,

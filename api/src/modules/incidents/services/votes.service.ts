@@ -2,12 +2,15 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { IncidentStatus } from '@/src/common/enums/incidents.enums';
 import type { User } from '@/src/common/types/entities.types';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
+import { ModerationService } from '@/src/modules/moderation/moderation.service';
+import { VoteType } from '@/src/common/enums/incidents.enums';
 import { VoteIncidentDto } from '../dto/vote-incident.dto';
 import { ReturnVoteDto } from '../dto/return-vote.dto';
 
@@ -16,9 +19,11 @@ import { ReturnVoteDto } from '../dto/return-vote.dto';
  */
 @Injectable()
 export class VotesService {
+  private readonly logger = new Logger(VotesService.name);
   constructor(
     private readonly incidentsRepository: IncidentsRepository,
     private readonly voteRepository: VoteRepository,
+    private readonly moderationService: ModerationService,
   ) {}
 
   /**
@@ -69,6 +74,17 @@ export class VotesService {
       user.id,
       dto.type,
     );
+    if (dto.type === VoteType.DISCONFIRM) {
+      void this.moderationService
+        .evaluateIncidentAfterVote(incidentId)
+        .catch((error: unknown) => {
+          // O voto já foi persistido; uma falha de avaliação não altera a resposta.
+          this.logger.error(
+            'Falha ao avaliar moderação após voto',
+            error instanceof Error ? error.stack : String(error),
+          );
+        });
+    }
 
     return {
       incidentId,

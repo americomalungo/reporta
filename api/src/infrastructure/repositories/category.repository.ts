@@ -10,6 +10,7 @@ import type {
 } from '@/src/common/types/categories.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { isPrismaError } from '../prisma/prisma-errors';
+import { ModerationAction } from '@/src/common/enums/moderation.enums';
 
 /**
  * Persiste e consulta categorias através da base de dados.
@@ -25,12 +26,28 @@ export class CategoryRepository {
   /**
    * Cria uma categoria com os dados de domínio recebidos.
    * @param {CreateCategoryData} data dados de criação da categoria
+   * @param {string | undefined} adminId administrador para auditoria da criação
    * @returns {Promise<Category>} categoria persistida
    * @throws {ConflictException} se já existir uma categoria com o mesmo slug
    */
-  async createCategory(data: CreateCategoryData): Promise<Category> {
+  async createCategory(
+    data: CreateCategoryData,
+    adminId: string,
+  ): Promise<Category> {
     try {
-      return await this.prismaService.category.create({ data });
+      return await this.prismaService.$transaction(async (tx) => {
+        const category = await tx.category.create({ data });
+        if (adminId !== undefined)
+          await tx.moderationLog.create({
+            data: {
+              action: ModerationAction.EDIT_CATEGORY,
+              adminId,
+              reason: 'Categoria criada',
+              metadata: { categoryId: category.id, changes: Object.keys(data) },
+            },
+          });
+        return category;
+      });
     } catch (error: unknown) {
       if (isPrismaError(error, 'P2002')) {
         throw new ConflictException('Já existe uma categoria com este slug');
@@ -75,6 +92,7 @@ export class CategoryRepository {
    * Atualiza os campos de domínio de uma categoria.
    * @param {string} id identificador da categoria
    * @param {UpdateCategoryData} data campos de categoria a atualizar
+   * @param {string | undefined} adminId administrador para auditoria da edição
    * @returns {Promise<Category>} categoria atualizada
    * @throws {ConflictException} se o novo slug já estiver em uso
    * @throws {NotFoundException} se a categoria não existir
@@ -82,11 +100,21 @@ export class CategoryRepository {
   async updateCategory(
     id: string,
     data: UpdateCategoryData,
+    adminId: string,
   ): Promise<Category> {
     try {
-      return await this.prismaService.category.update({
-        where: { id },
-        data,
+      return await this.prismaService.$transaction(async (tx) => {
+        const category = await tx.category.update({ where: { id }, data });
+        if (adminId !== undefined)
+          await tx.moderationLog.create({
+            data: {
+              action: ModerationAction.EDIT_CATEGORY,
+              adminId,
+              reason: 'Categoria editada',
+              metadata: { categoryId: id, changes: Object.keys(data) },
+            },
+          });
+        return category;
       });
     } catch (error: unknown) {
       if (isPrismaError(error, 'P2002')) {
