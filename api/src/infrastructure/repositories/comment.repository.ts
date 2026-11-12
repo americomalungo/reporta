@@ -171,21 +171,46 @@ export class CommentRepository {
       return [];
     }
 
-    return this.prismaService.comment.findMany({
-      where: {
-        parentId: { in: parentIds },
-        isHidden: false,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            avatarUrl: true,
-            reputationScore: true,
+    const pages = await Promise.all(parentIds.map((parentId) =>
+      this.prismaService.comment.findMany({
+        where: { parentId, isHidden: false },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: 51,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              avatarUrl: true,
+              reputationScore: true,
+            },
           },
         },
+      }),
+    ));
+    return pages.flat();
+  }
+
+  findRepliesAfterCursor(
+    parentId: string,
+    cursor: TopLevelCommentCursor | undefined,
+    take: number,
+  ): Promise<CommentWithAuthor[]> {
+    return this.prismaService.comment.findMany({
+      where: {
+        parentId,
+        isHidden: false,
+        ...(cursor ? {
+          OR: [
+            { createdAt: { gt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+          ],
+        } : {}),
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take,
+      include: {
+        user: { select: { id: true, name: true, avatarUrl: true, reputationScore: true } },
       },
     });
   }

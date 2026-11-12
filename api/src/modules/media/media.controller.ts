@@ -21,9 +21,9 @@ import { memoryStorage } from 'multer';
 import { catchError, Observable, throwError } from 'rxjs';
 import { CurrentDbUser } from '@/src/common/decorators/current-user.decorator';
 import type { User } from '@/src/common/types/entities.types';
-import { ReturnMediaDto } from '../dto/return-media.dto';
-import { IncidentMediaService } from '../services/incident-media.service';
-import type { UploadedImageInput } from '../services/image-processor.service';
+import { ReturnMediaDto } from './dto/return-media.dto';
+import { MediaService } from './media.service';
+import { UploadedImageInput } from './image-processor.service';
 
 /**
  * Traduz as exceções HTTP que o Nest cria a partir dos erros do Multer.
@@ -104,9 +104,9 @@ export class MulterUploadErrorInterceptor implements NestInterceptor {
 export class IncidentMediaController {
   /**
    * Injeta o serviço de gestão das fotos.
-   * @param {IncidentMediaService} incidentMediaService gestão das imagens
+   * @param {MediaService} incidentMediaService gestão das imagens
    */
-  constructor(private readonly incidentMediaService: IncidentMediaService) {}
+  constructor(private readonly incidentMediaService: MediaService) {}
 
   /**
    * Envia entre uma e três imagens para um incidente.
@@ -137,7 +137,12 @@ export class IncidentMediaController {
     MulterUploadErrorInterceptor,
     FilesInterceptor('files', 3, {
       storage: memoryStorage(),
-      limits: { fileSize: 5 * 1024 * 1024 },
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+        files: 3,
+        fields: 0,
+        parts: 3,
+      },
     }),
   )
   upload(

@@ -13,7 +13,7 @@ import { IncidentStatus } from '@/src/common/enums/incidents.enums';
 import { CategoryRepository } from '@/src/infrastructure/repositories/category.repository';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { IncidentMediaRepository } from '@/src/infrastructure/repositories/incident-media.repository';
-import { MediaUrlService } from './media-url.service';
+import { MediaUrlService } from '../../media/media-url.service';
 import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
 import { AlertsService } from '@/src/modules/alerts/alerts.service';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';

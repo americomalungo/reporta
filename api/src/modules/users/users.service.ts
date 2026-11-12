@@ -4,10 +4,18 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
 import type { UpdateUserData } from '@/src/common/types/users.types';
+import type { CursorPage } from '@/src/common/types/pagination.types';
+import { CursorPaginationQueryDto } from '@/src/common/dto/cursor-pagination-query.dto';
+import {
+  decodeCursor,
+  encodeCursor,
+  isCreatedAtIdCursor,
+} from '@/src/common/utils/cursor';
 import { UserRepository } from '@/src/infrastructure/repositories/user.repository';
 import { CreateUserDto } from './dto/create-user.dto';
 import { PublicUserDto } from './dto/public-user.dto';
@@ -17,6 +25,7 @@ import { AuthService } from '../auth/auth.service';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
   constructor(
     private readonly authService: AuthService,
     private readonly repository: UserRepository,
@@ -94,12 +103,21 @@ export class UsersService {
       email,
     };
 
-    await this.authService.setRole(firebaseUid, UserRole.USER);
     const user = await this.repository.createUser(
       data,
       lastLocation?.latitude,
       lastLocation?.longitude,
     );
+    // A role do banco é a fonte de verdade no guard. A claim é apenas um
+    // espelho para clientes que a consomem e não pode invalidar o registo.
+    try {
+      await this.authService.setRole(firebaseUid, UserRole.USER);
+    } catch (error: unknown) {
+      this.logger.error(
+        `Utilizador ${user.id} criado, mas a claim Firebase não foi atualizada`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
 
     return {
       id: user.id,
@@ -115,37 +133,65 @@ export class UsersService {
   }
 
   /**
-   * Função que retorna todos usuarios
-   * Se o usuario atenticado for admin, retorna todos. Senão retorna somente os ativos
+   * Lista utilizadores por cursor; inclui perfis completos para administradores.
    * @param {DecodedIdToken} user
-   * @returns {Promise<ReturnUserDto[] | PublicUserDto[]>}
+   * @param {CursorPaginationQueryDto} query paginação por cursor
+   * @returns {Promise<CursorPage<ReturnUserDto | PublicUserDto>>} página de utilizadores
    */
   async findAll(
     user: DecodedIdToken,
-  ): Promise<ReturnUserDto[] | PublicUserDto[]> {
+    query: CursorPaginationQueryDto,
+  ): Promise<CursorPage<ReturnUserDto | PublicUserDto>> {
     const isAdmin = user.role === UserRole.ADMIN;
-    const users = await this.repository.listUsers(isAdmin);
+    const limit = query.limit ?? 20;
+    const cursor =
+      query.cursor === undefined
+        ? undefined
+        : decodeCursor(query.cursor, isCreatedAtIdCursor);
+    const users = await this.repository.listUsersPage(
+      isAdmin,
+      cursor
+        ? { createdAt: new Date(cursor.createdAt), id: cursor.id }
+        : undefined,
+      limit + 1,
+    );
+    const hasNextPage = users.length > limit;
+    const page = users.slice(0, limit);
+    const last = page.at(-1);
 
-    if (!isAdmin) {
-      return users.map((u) => ({
-        id: u.id,
-        reputationScore: u.reputationScore,
-        name: u.name,
-        avatarUrl: u.avatarUrl,
-      }));
-    }
-
-    return users.map((u) => ({
-      id: u.id,
-      reputationScore: u.reputationScore,
-      name: u.name,
-      role: u.role ?? UserRole.USER,
-      email: u.email,
-      phone: u.phone ?? undefined,
-      alertsEnabled: u.alertsEnabled,
-      avatarUrl: u.avatarUrl ?? undefined,
-      alertRadiusM: u.alertRadiusM,
-    }));
+    const data = !isAdmin
+      ? page.map(
+          (u): PublicUserDto => ({
+            id: u.id,
+            reputationScore: u.reputationScore,
+            name: u.name,
+            avatarUrl: u.avatarUrl,
+          }),
+        )
+      : page.map(
+          (u): ReturnUserDto => ({
+            id: u.id,
+            reputationScore: u.reputationScore,
+            name: u.name,
+            role: u.role ?? UserRole.USER,
+            email: u.email,
+            phone: u.phone ?? undefined,
+            alertsEnabled: u.alertsEnabled,
+            avatarUrl: u.avatarUrl ?? undefined,
+            alertRadiusM: u.alertRadiusM,
+          }),
+        );
+    return {
+      data,
+      hasNextPage,
+      nextCursor:
+        hasNextPage && last
+          ? encodeCursor({
+              createdAt: last.createdAt.toISOString(),
+              id: last.id,
+            })
+          : null,
+    };
   }
 
   /**

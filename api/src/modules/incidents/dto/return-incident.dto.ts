@@ -1,5 +1,5 @@
 import type { VoteType as VoteTypeEnum } from '@/src/common/types/incidents.types';
-import { ReturnMediaDto } from './return-media.dto';
+import { ReturnMediaDto } from '../../media/dto/return-media.dto';
 
 /**
  * DTO público de resposta de um incidente.

@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@/generated/prisma';
+import { NotificationType } from '@/src/common/enums/notifications.enums';
+import { PUSH_CLAIM_LEASE_MINUTES } from '@/src/common/constants/notifications.constants';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -65,20 +67,59 @@ export class AlertRepository {
    */
   constructor(private readonly prismaService: PrismaService) {}
 
-  /**
-   * Reclama o despacho de um alerta uma única vez para o incidente.
-   * @param {string} incidentId id do incidente
-   * @returns {Promise<boolean>} true quando este processo reclamou o despacho
-   */
-  async claimDispatch(incidentId: string): Promise<boolean> {
-    const updated = await this.prismaService.$executeRaw`
-      UPDATE incidents
-      SET "alertDispatchedAt" = now()
-      WHERE id = ${incidentId}
-        AND "alertDispatchedAt" IS NULL
-        AND status = 'ACTIVE'
-    `;
-    return updated > 0;
+  async findUndispatchedRiskIncidentIds(
+    afterId: string | null,
+    take: number,
+  ): Promise<string[]> {
+    const incidents = await this.prismaService.incident.findMany({
+      where: {
+        status: 'ACTIVE',
+        alertDispatchedAt: null,
+        category: { is: { isRisk: true } },
+        ...(afterId === null ? {} : { id: { gt: afterId } }),
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+      take,
+    });
+    return incidents.map(({ id }) => id);
+  }
+
+  async markDispatchComplete(incidentId: string): Promise<void> {
+    await this.prismaService.incident.updateMany({
+      where: { id: incidentId, status: 'ACTIVE', alertDispatchedAt: null },
+      data: { alertDispatchedAt: new Date() },
+    });
+  }
+
+  async findIncidentsWithPendingPush(
+    afterId: string | null,
+    take: number,
+  ): Promise<string[]> {
+    const rows = await this.prismaService.notification.findMany({
+      where: {
+        type: 'RISK_ALERT',
+        pushSent: false,
+        incidentId: {
+          not: null,
+          ...(afterId === null ? {} : { gt: afterId }),
+        },
+        user: { pushTokens: { some: { isActive: true } } },
+        OR: [
+          { pushClaimedAt: null },
+          {
+            pushClaimedAt: {
+              lte: new Date(Date.now() - PUSH_CLAIM_LEASE_MINUTES * 60_000),
+            },
+          },
+        ],
+      },
+      select: { incidentId: true },
+      distinct: ['incidentId'],
+      orderBy: { incidentId: 'asc' },
+      take,
+    });
+    return rows.flatMap((row) => row.incidentId ? [row.incidentId] : []);
   }
 
   /**
@@ -92,6 +133,9 @@ export class AlertRepository {
     authorId: string;
     afterUserId: string | null;
     batchSize: number;
+    categoryName: string;
+    incidentTitle: string;
+    categoryId: string;
   }): Promise<AlertDeliveryBatch> {
     return this.prismaService.$transaction(async (transaction) => {
       const afterUserIdClause =
@@ -175,6 +219,33 @@ export class AlertRepository {
         ...recipient,
         zoneName: candidatesByUserId.get(recipient.userId)?.zoneName ?? null,
       }));
+
+      if (recipients.length > 0) {
+        await transaction.notification.createMany({
+          data: recipients.map((recipient) => ({
+            userId: recipient.userId,
+            type: NotificationType.RISK_ALERT,
+            title: 'Alerta de risco perto de si',
+            body:
+              recipient.distanceM !== null && recipient.zoneName !== null
+                ? `A categoria ${params.categoryName} registou o incidente "${params.incidentTitle}", a cerca de ${Math.round(recipient.distanceM)} m, na sua zona "${recipient.zoneName}".`
+                : recipient.distanceM !== null
+                  ? `A categoria ${params.categoryName} registou o incidente "${params.incidentTitle}", a cerca de ${Math.round(recipient.distanceM)} m.`
+                  : `A categoria ${params.categoryName} registou o incidente "${params.incidentTitle}" na sua zona "${recipient.zoneName ?? ''}".`,
+            incidentId: params.incidentId,
+            data: {
+              incidentId: params.incidentId,
+              categoryId: params.categoryId,
+              ...(recipient.distanceM === null
+                ? {}
+                : { distanceM: recipient.distanceM }),
+              ...(recipient.zoneName === null
+                ? {}
+                : { zoneName: recipient.zoneName }),
+            },
+          })),
+        });
+      }
 
       return {
         recipients,

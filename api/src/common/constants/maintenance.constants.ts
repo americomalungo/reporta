@@ -6,8 +6,6 @@ export const LIFT_SUSPENSIONS_BATCH_SIZE = 200;
 export const CLEANUP_MEDIA_BATCH_SIZE = 100;
 /** Tamanho de cada página de objetos no armazenamento. */
 export const ORPHAN_SCAN_PAGE_SIZE = 1000;
-/** Limite de páginas de objetos numa execução de deteção de órfãos. */
-export const ORPHAN_SCAN_MAX_PAGES = 50;
 /** Idade mínima de objetos antes de os considerar órfãos, em horas. */
 export const ORPHAN_MIN_AGE_HOURS = 24;
 /** Período de tolerância após remoção de incidente, em horas. */

@@ -43,4 +43,7 @@ export class ReturnCommentDto {
    * Respostas visíveis do comentário.
    */
   replies: ReturnCommentDto[];
+
+  /** Indica que existem respostas adicionais disponíveis na rota de respostas paginadas. */
+  repliesHasMore: boolean;
 }

@@ -29,6 +29,8 @@ import { AdminUserRepository } from '@/src/infrastructure/repositories/admin-use
 import { SuspendUserDto } from './dto/suspend-user.dto';
 import { BanUserDto } from './dto/ban-user.dto';
 import { RestrictPostingDto } from './dto/restrict-posting.dto';
+import { Cron } from '@nestjs/schedule';
+import { EnvService } from '@/src/infrastructure/env/env.service';
 
 /**
  * Coordena regras de moderação e efeitos externos.
@@ -48,7 +50,18 @@ export class ModerationService {
     private readonly notificationDispatcher: NotificationDispatcherService,
     private readonly authService: AuthService,
     private readonly adminUserRepository: AdminUserRepository,
+    private readonly env: EnvService,
   ) {}
+
+  @Cron('*/5 * * * *', { name: 'retry-auto-moderation', timeZone: 'Africa/Luanda' })
+  async retryPendingAutoModeration(): Promise<void> {
+    if (!this.env.jobsEnabled) return;
+    const incidentIds = await this.moderationRepository
+      .findIncidentsPendingAutoRemoval(500);
+    for (const incidentId of incidentIds) {
+      await this.evaluateIncidentAfterVote(incidentId);
+    }
+  }
 
   /** Avalia a remoção automática depois de um voto sem propagar falhas ao voto.
    * @param {string} incidentId identificador do incidente

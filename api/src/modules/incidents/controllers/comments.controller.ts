@@ -52,6 +52,21 @@ export class CommentsController {
     return this.commentsService.findAll(incidentId, query);
   }
 
+  /** Lista respostas de um comentário principal por cursor.
+   * @param {string} incidentId incidente associado
+   * @param {string} commentId comentário principal
+   * @param {CommentsQueryDto} query paginação
+   * @returns {Promise<CursorPage<ReturnCommentDto>>} respostas paginadas
+   */
+  @Get(':commentId/replies')
+  findReplies(
+    @Param('incidentId') incidentId: string,
+    @Param('commentId') commentId: string,
+    @Query() query: CommentsQueryDto,
+  ): Promise<CursorPage<ReturnCommentDto>> {
+    return this.commentsService.findReplies(incidentId, commentId, query);
+  }
+
   /**
    * Remove um comentário ou resposta.
    * @param {string} incidentId id do incidente

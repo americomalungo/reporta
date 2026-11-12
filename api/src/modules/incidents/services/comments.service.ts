@@ -138,9 +138,10 @@ export class CommentsService {
       repliesByParent.set(reply.parentId, currentReplies);
     });
 
-    const data = commentsPage.map((comment) =>
-      this.toReturnCommentDto(comment, repliesByParent.get(comment.id) ?? []),
-    );
+    const data = commentsPage.map((comment) => {
+      const replies = repliesByParent.get(comment.id) ?? [];
+      return this.toReturnCommentDto(comment, replies.slice(0, 50), replies.length > 50);
+    });
 
     const lastComment = commentsPage.at(-1);
     const nextCursor =
@@ -152,6 +153,46 @@ export class CommentsService {
         : null;
 
     return { data, nextCursor, hasNextPage };
+  }
+
+  async findReplies(
+    incidentId: string,
+    parentId: string,
+    query: CommentsQueryDto,
+  ): Promise<CursorPage<ReturnCommentDto>> {
+    const incident = await this.incidentsRepository.findVisibleById(incidentId);
+    const parent = await this.commentRepository.findById(parentId);
+    if (
+      !incident ||
+      incident.status === IncidentStatus.REMOVED ||
+      incident.status === IncidentStatus.DELETED ||
+      !parent ||
+      parent.incidentId !== incidentId ||
+      parent.parentId !== null ||
+      parent.isHidden
+    ) {
+      throw new NotFoundException('Comentário não encontrado');
+    }
+
+    const limit = query.limit ?? 20;
+    const cursor = query.cursor !== undefined
+      ? decodeCursor(query.cursor, isTimestampIdCursor)
+      : undefined;
+    const rows = await this.commentRepository.findRepliesAfterCursor(
+      parentId,
+      cursor ? { createdAt: new Date(cursor.t), id: cursor.id } : undefined,
+      limit + 1,
+    );
+    const hasNextPage = rows.length > limit;
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      data: page.map((reply) => this.toReturnCommentDto(reply, [], false)),
+      hasNextPage,
+      nextCursor: hasNextPage && last
+        ? encodeCursor({ t: last.createdAt.toISOString(), id: last.id })
+        : null,
+    };
   }
 
   /**
@@ -204,6 +245,7 @@ export class CommentsService {
   private toReturnCommentDto(
     comment: CommentWithAuthor,
     replies: CommentWithAuthor[],
+    repliesHasMore = false,
   ): ReturnCommentDto {
     return {
       id: comment.id,
@@ -218,7 +260,8 @@ export class CommentsService {
       },
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
-      replies: replies.map((reply) => this.toReturnCommentDto(reply, [])),
+      replies: replies.map((reply) => this.toReturnCommentDto(reply, [], false)),
+      repliesHasMore,
     };
   }
 }

@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import type { IncidentMedia } from '@/src/common/types/entities.types';
 import { StorageService } from '@/src/infrastructure/storage/storage.service';
-import { ReturnMediaDto } from '../dto/return-media.dto';
+import { ReturnMediaDto } from './dto/return-media.dto';
 
 /** Converte linhas de media em DTOs com URLs assinados em lote. */
 @Injectable()

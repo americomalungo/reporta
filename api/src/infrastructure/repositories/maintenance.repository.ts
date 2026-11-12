@@ -16,6 +16,33 @@ export class MaintenanceRepository {
    */
   constructor(private readonly prismaService: PrismaService) {}
 
+  async acquireJobLock(job: string, token: string): Promise<boolean> {
+    const rows = await this.prismaService.$queryRaw<{ job: string }[]>`
+      INSERT INTO maintenance_job_locks (job, token, "leaseUntil")
+      VALUES (${job}, ${token}, now() + interval '1 minute')
+      ON CONFLICT (job) DO UPDATE
+      SET token = EXCLUDED.token, "leaseUntil" = EXCLUDED."leaseUntil"
+      WHERE maintenance_job_locks."leaseUntil" <= now()
+      RETURNING job
+    `;
+    return rows.length > 0;
+  }
+
+  async renewJobLock(job: string, token: string): Promise<boolean> {
+    const count = await this.prismaService.$executeRaw`
+      UPDATE maintenance_job_locks
+      SET "leaseUntil" = now() + interval '1 minute'
+      WHERE job = ${job} AND token = ${token}
+    `;
+    return count === 1;
+  }
+
+  async releaseJobLock(job: string, token: string): Promise<void> {
+    await this.prismaService.$executeRaw`
+      DELETE FROM maintenance_job_locks WHERE job = ${job} AND token = ${token}
+    `;
+  }
+
   /** Expira um lote de incidentes ativos vencidos.
    * @param {number} batchSize máximo de incidentes por lote
    * @returns {Promise<string[]>} IDs que passaram a expirados

@@ -3,6 +3,11 @@ import { $Enums } from '@/generated/prisma';
 export type UserRole = $Enums.UserRole;
 export type AccountStatus = $Enums.AccountStatus;
 
+export interface UserListCursor {
+  createdAt: Date;
+  id: string;
+}
+
 /** Dados de perfil necessários para criar uma conta na aplicação. */
 export interface CreateUserData {
   /** Nome público do utilizador. */

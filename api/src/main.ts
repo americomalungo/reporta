@@ -3,8 +3,6 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule, ObserveInstrument } from './app.module';
 import { EnvService } from './infrastructure/env/env.service';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 const logger = new Logger('Bootstrap');
 
@@ -37,12 +35,6 @@ async function bootstrap() {
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
-    const outputPath = path.resolve(process.cwd(), 'swagger.json');
-    fs.writeFileSync(outputPath, JSON.stringify(document, null, 2), {
-      encoding: 'utf8',
-    });
-
-    logger.log(`Arquivo OpenAPI gerado em: ${outputPath}`);
     SwaggerModule.setup('docs', app, document);
   }
 

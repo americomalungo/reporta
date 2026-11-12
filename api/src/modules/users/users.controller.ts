@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -15,6 +16,8 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { CurrentUser } from '@/src/common/decorators/current-user.decorator';
 import { AllowUnregistered } from '@/src/common/decorators/allow-unregistered.decorator';
 import type { DecodedIdToken } from 'firebase-admin/auth';
+import type { CursorPage } from '@/src/common/types/pagination.types';
+import { CursorPaginationQueryDto } from '@/src/common/dto/cursor-pagination-query.dto';
 
 @Controller('users')
 export class UsersController {
@@ -37,8 +40,9 @@ export class UsersController {
   @Get()
   findAll(
     @CurrentUser() user: DecodedIdToken,
-  ): Promise<ReturnUserDto[] | PublicUserDto[]> {
-    return this.usersService.findAll(user);
+    @Query() query: CursorPaginationQueryDto,
+  ): Promise<CursorPage<ReturnUserDto | PublicUserDto>> {
+    return this.usersService.findAll(user, query);
   }
 
   @Get(':id')

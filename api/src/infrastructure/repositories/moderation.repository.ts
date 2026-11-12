@@ -36,6 +36,18 @@ export class ModerationRepository {
    */
   constructor(private readonly prismaService: PrismaService) {}
 
+  async findIncidentsPendingAutoRemoval(take: number): Promise<string[]> {
+    const rows = await this.prismaService.$queryRaw<{ id: string }[]>`
+      SELECT id FROM incidents
+      WHERE status = 'ACTIVE'
+        AND "disconfirmCount" >= ${AUTO_REMOVE_MIN_DISCONFIRMS}
+        AND "disconfirmCount" >= ${AUTO_REMOVE_DISCONFIRM_RATIO} * "confirmCount"
+      ORDER BY "updatedAt" ASC, id ASC
+      LIMIT ${take}
+    `;
+    return rows.map(({ id }) => id);
+  }
+
   /** Remove atomicamente um incidente quando os votos atingem o limiar automático.
    * @param {string} incidentId identificador do incidente
    * @returns {Promise<AutoRemovalResult | null>} resultado da remoção ou null se o limiar não foi aplicado

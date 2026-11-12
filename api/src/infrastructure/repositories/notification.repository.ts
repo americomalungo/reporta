@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Notification, Prisma } from '@/generated/prisma';
 import type { NotificationType } from '@/src/common/types/notifications.types';
 import { PrismaService } from '../prisma/prisma.service';
+import { PUSH_CLAIM_LEASE_MINUTES } from '@/src/common/constants/notifications.constants';
 
 /**
  * Dados para criar uma notificação in-app.
@@ -185,8 +186,39 @@ export class NotificationRepository {
 
     const result = await this.prismaService.notification.updateMany({
       where: { id: { in: ids } },
-      data: { pushSent: true, pushSentAt: new Date() },
+      data: { pushSent: true, pushSentAt: new Date(), pushClaimedAt: null },
     });
     return result.count;
+  }
+
+  claimPendingRiskAlerts(
+    incidentId: string,
+    take: number,
+  ): Promise<Notification[]> {
+    return this.prismaService.$queryRaw<Notification[]>`
+      WITH candidates AS (
+        SELECT n.id
+        FROM notifications n
+        WHERE n."incidentId" = ${incidentId}
+          AND n.type = 'RISK_ALERT'
+          AND n."pushSent" = false
+          AND (
+            n."pushClaimedAt" IS NULL OR
+            n."pushClaimedAt" < now() - (${PUSH_CLAIM_LEASE_MINUTES} * interval '1 minute')
+          )
+          AND EXISTS (
+            SELECT 1 FROM push_tokens p
+            WHERE p."userId" = n."userId" AND p."isActive" = true
+          )
+        ORDER BY n.id
+        LIMIT ${take}
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE notifications n
+      SET "pushClaimedAt" = now()
+      FROM candidates c
+      WHERE n.id = c.id
+      RETURNING n.*
+    `;
   }
 }

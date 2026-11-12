@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Cron } from '@nestjs/schedule';
 import { MaintenanceJob } from '@/src/common/enums/maintenance.enums';
 import {
@@ -7,7 +8,6 @@ import {
   HOUSEKEEPING_BATCH_SIZE,
   MAINTENANCE_MAX_BATCH_ITERATIONS,
   ORPHAN_MIN_AGE_HOURS,
-  ORPHAN_SCAN_MAX_PAGES,
   ORPHAN_SCAN_PAGE_SIZE,
   LIFT_SUSPENSIONS_BATCH_SIZE,
 } from '@/src/common/constants/maintenance.constants';
@@ -20,7 +20,7 @@ import { NotificationDispatcherService } from '@/src/modules/notifications/notif
 import { EnvService } from '@/src/infrastructure/env/env.service';
 import type { MaintenanceRunResult } from '@/src/common/types/maintenance.types';
 
-/** Executa os cinco jobs de manutenção de forma idempotente e sem sobreposição local. */
+/** Executa jobs de manutenção de forma idempotente com lease partilhada na base de dados. */
 @Injectable()
 export class MaintenanceService {
   private readonly logger = new Logger(MaintenanceService.name);
@@ -92,6 +92,31 @@ export class MaintenanceService {
     if (this.runningJobs.has(job))
       throw new ConflictException('Job já em execução');
     this.runningJobs.add(job);
+    const lockToken = randomUUID();
+    let locked: boolean;
+    try {
+      locked = await this.maintenanceRepository.acquireJobLock(job, lockToken);
+    } catch (error: unknown) {
+      this.runningJobs.delete(job);
+      throw error;
+    }
+    if (!locked) {
+      this.runningJobs.delete(job);
+      throw new ConflictException('Job já em execução noutra instância');
+    }
+    const heartbeat = setInterval(() => {
+      void this.maintenanceRepository
+        .renewJobLock(job, lockToken)
+        .then((renewed) => {
+          if (!renewed) this.logger.error(`Lease do job ${job} foi perdida`);
+        })
+        .catch((error: unknown) =>
+          this.logger.error(
+            `Falha ao renovar lease do job ${job}`,
+            error instanceof Error ? error.stack : String(error),
+          ),
+        );
+    }, 20_000);
     const startedAt = Date.now();
     let affected = 0;
     try {
@@ -118,8 +143,18 @@ export class MaintenanceService {
           ? `${error.name}: ${error.message}\n${error.stack ?? ''}`
           : String(error);
       this.logger.error(`Falha no job ${job}`, details);
+      throw error;
     } finally {
+      clearInterval(heartbeat);
       this.runningJobs.delete(job);
+      try {
+        await this.maintenanceRepository.releaseJobLock(job, lockToken);
+      } catch (error: unknown) {
+        this.logger.error(
+          `Falha ao libertar lease do job ${job}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      }
     }
     const durationMs = Date.now() - startedAt;
     if (affected > 0)
@@ -208,7 +243,7 @@ export class MaintenanceService {
     const cutoff = Date.now() - ORPHAN_MIN_AGE_HOURS * 60 * 60 * 1000;
     let affected = 0;
     let continuationToken: string | undefined;
-    for (let page = 0; page < ORPHAN_SCAN_MAX_PAGES; page += 1) {
+    while (true) {
       const result = await this.storageService.listObjects('incidents/', {
         continuationToken,
         maxKeys: ORPHAN_SCAN_PAGE_SIZE,
@@ -283,6 +318,11 @@ export class MaintenanceService {
    */
   private async runScheduled(job: MaintenanceJob): Promise<void> {
     if (!this.env.jobsEnabled || this.runningJobs.has(job)) return;
-    await this.execute(job);
+    try {
+      await this.execute(job);
+    } catch (error: unknown) {
+      if (error instanceof ConflictException) return;
+      throw error;
+    }
   }
 }

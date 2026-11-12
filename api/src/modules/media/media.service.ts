@@ -15,7 +15,7 @@ import type { NewMedia } from '@/src/infrastructure/repositories/incident-media.
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { StorageService } from '@/src/infrastructure/storage/storage.service';
 import { MediaUrlService } from './media-url.service';
-import { ReturnMediaDto } from '../dto/return-media.dto';
+import { ReturnMediaDto } from './dto/return-media.dto';
 import {
   ImageProcessorService,
   type ProcessedImage,
@@ -35,8 +35,8 @@ export const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
  * Coordena validação, armazenamento e persistência de imagens de incidentes.
  */
 @Injectable()
-export class IncidentMediaService {
-  private readonly logger = new Logger(IncidentMediaService.name);
+export class MediaService {
+  private readonly logger = new Logger(MediaService.name);
 
   /**
    * Injeta os repositórios e serviços de processamento e armazenamento.
@@ -88,9 +88,10 @@ export class IncidentMediaService {
       throw new ConflictException('O incidente não está ativo');
     }
 
-    const processed = await Promise.all(
-      files.map((file) => this.imageProcessor.process(file)),
-    );
+    const processed: ProcessedImage[] = [];
+    for (const file of files) {
+      processed.push(await this.imageProcessor.process(file));
+    }
     const bucket = this.storageService.getBucketName();
     const uploaded: NewMedia[] = [];
 
@@ -153,7 +154,6 @@ export class IncidentMediaService {
     );
     if (!media) throw new NotFoundException('Imagem não encontrada');
 
-    await this.incidentMediaRepository.deleteById(media.id);
     try {
       await this.storageService.remove([media.path]);
     } catch (error: unknown) {
@@ -161,7 +161,9 @@ export class IncidentMediaService {
         `Falha ao remover a imagem ${media.id} do armazenamento`,
         error instanceof Error ? error.stack : String(error),
       );
+      throw error;
     }
+    await this.incidentMediaRepository.deleteById(media.id);
     return { message: 'Imagem removida' };
   }
 

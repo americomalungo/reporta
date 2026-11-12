@@ -59,7 +59,7 @@ export class ImageProcessorService {
   async process(file: UploadedImageInput): Promise<ProcessedImage> {
     try {
       const image = sharp(file.buffer, {
-        limitInputPixels: 40_000_000,
+        limitInputPixels: 20_000_000,
         failOn: 'error',
       });
       const metadata = await image.metadata();
@@ -71,7 +71,7 @@ export class ImageProcessorService {
       }
 
       const { data, info } = await sharp(file.buffer, {
-        limitInputPixels: 40_000_000,
+        limitInputPixels: 20_000_000,
         failOn: 'error',
       })
         .rotate()

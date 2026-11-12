@@ -14,6 +14,7 @@ import type {
 } from '@/src/common/types/users.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { isPrismaError } from '../prisma/prisma-errors';
+import type { UserListCursor } from '@/src/common/types/users.types';
 
 /**
  * Persiste e consulta utilizadores e os seus dados associados.
@@ -78,15 +79,24 @@ export class UserRepository {
     return this.prismaService.user.findUnique({ where: { id } });
   }
 
-  /**
-   * Lista utilizadores, podendo incluir estados não ativos para administração.
-   * @param {boolean} includeInactive indica se os estados não ativos são incluídos
-   * @returns {Promise<User[]>} utilizadores encontrados por ordem de criação
-   */
-  async listUsers(includeInactive: boolean): Promise<User[]> {
+  /** Lista uma página por cursor e pode incluir estados não ativos para administração. */
+  listUsersPage(
+    includeInactive: boolean,
+    cursor: UserListCursor | undefined,
+    take: number,
+  ): Promise<User[]> {
     return this.prismaService.user.findMany({
-      where: includeInactive ? undefined : { status: AccountStatus.ACTIVE },
-      orderBy: { createdAt: 'desc' },
+      where: {
+        ...(includeInactive ? {} : { status: AccountStatus.ACTIVE }),
+        ...(cursor ? {
+          OR: [
+            { createdAt: { lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+          ],
+        } : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
     });
   }
 
