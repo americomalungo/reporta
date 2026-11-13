@@ -5,7 +5,7 @@ import {
   OnApplicationShutdown,
 } from '@nestjs/common';
 import { Job, Queue, Worker } from 'bullmq';
-import Redis from 'ioredis';
+import Redis, { type RedisOptions } from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import {
   JOB_DEFAULT_ATTEMPTS,
@@ -14,7 +14,8 @@ import {
   JOB_REMOVE_ON_COMPLETE,
   JOB_REMOVE_ON_FAIL,
   QUEUE_CONCURRENCY,
-  REDIS_COMMAND_TIMEOUT_MS,
+  REDIS_CONNECT_TIMEOUT_MS,
+  REDIS_QUEUE_COMMAND_TIMEOUT_MS,
   REDIS_MAX_RETRY_DELAY_MS,
 } from '@/src/common/constants/queues.constants';
 import { JobName, QueueName } from '@/src/common/enums/queue.enums';
@@ -28,8 +29,13 @@ import type {
 } from '@/src/common/types/jobs.types';
 import { JOB_PAYLOAD_GUARDS } from '@/src/common/utils/job-payload.guards';
 import { EnvService } from '@/src/infrastructure/env/env.service';
+import { registerRedisConnectionLogging } from '@/src/infrastructure/redis/redis-connection-logging';
 import { JobQueue } from './job-queue';
 
+/** Redis connection roles supported by the BullMQ adapter. */
+type RedisConnectionKind = 'queue' | 'worker';
+
+/** Type-erased handler stored after its typed payload guard is applied. */
 type StoredHandler = (payload: unknown, context: JobContext) => Promise<void>;
 
 /** BullMQ-backed implementation of the provider-independent job interface. */
@@ -39,7 +45,6 @@ export class BullMqJobQueue
   implements OnApplicationBootstrap, OnApplicationShutdown
 {
   private readonly logger = new Logger(BullMqJobQueue.name);
-  private readonly redis: Redis;
   private readonly queues = new Map<QueueName, Queue<unknown, void, string>>();
   private readonly workers: Worker<unknown, void, string>[] = [];
   private readonly queueConnections: Redis[] = [];
@@ -47,21 +52,11 @@ export class BullMqJobQueue
   private readonly handlers = new Map<JobName, StoredHandler>();
   private initialized = false;
 
-  /** Creates the BullMQ adapter and its dedicated Redis connection.
+  /** Creates the BullMQ adapter and stores connection configuration.
    * @param {EnvService} env runtime connection and worker configuration
    */
   constructor(private readonly env: EnvService) {
     super();
-    this.redis = new Redis(env.redisUrl, {
-      maxRetriesPerRequest: null,
-      commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
-      connectTimeout: REDIS_COMMAND_TIMEOUT_MS,
-      retryStrategy: (attempt: number): number =>
-        Math.min(attempt * 100, REDIS_MAX_RETRY_DELAY_MS),
-    });
-    this.redis.on('error', () =>
-      this.logger.error('BullMQ Redis connection error'),
-    );
   }
 
   /** Creates queues and enabled workers after feature modules register handlers.
@@ -69,11 +64,16 @@ export class BullMqJobQueue
    */
   async onApplicationBootstrap(): Promise<void> {
     if (this.initialized) return;
+    const queueConnection = this.createConnection('queue');
+    this.queueConnections.push(queueConnection);
+    registerRedisConnectionLogging(
+      queueConnection,
+      this.logger,
+      'BullMQ producers',
+    );
     for (const queueName of Object.values(QueueName)) {
-      const connection = this.redis.duplicate({ maxRetriesPerRequest: null });
-      this.queueConnections.push(connection);
       const queue = new Queue<unknown, void, string>(queueName, {
-        connection,
+        connection: queueConnection,
         prefix: this.env.redisKeyPrefix,
         defaultJobOptions: {
           attempts: JOB_DEFAULT_ATTEMPTS,
@@ -83,8 +83,8 @@ export class BullMqJobQueue
         },
       });
       queue.on('error', (error: Error) => {
-        this.logger.error(
-          `Queue ${queueName} error: ${this.safeErrorMessage(error)}`,
+        this.logger.debug(
+          `Queue ${queueName} error: ${this.redisErrorCode(error)}`,
         );
       });
       this.queues.set(queueName, queue);
@@ -93,8 +93,13 @@ export class BullMqJobQueue
     this.initialized = true;
     if (!this.env.jobsEnabled) return;
     for (const queueName of Object.values(QueueName)) {
-      const connection = this.redis.duplicate({ maxRetriesPerRequest: null });
+      const connection = this.createConnection('worker');
       this.workerConnections.push(connection);
+      registerRedisConnectionLogging(
+        connection,
+        this.logger,
+        `BullMQ worker ${queueName}`,
+      );
       const worker = new Worker<unknown, void, string>(
         queueName,
         async (job: Job<unknown, void, string>): Promise<void> =>
@@ -105,9 +110,20 @@ export class BullMqJobQueue
           concurrency: QUEUE_CONCURRENCY[queueName],
         },
       );
+      let workerFailureLogged = false;
       worker.on('error', (error: Error) => {
-        this.logger.error(
-          `Worker ${queueName} error: ${this.safeErrorMessage(error)}`,
+        const code = this.redisErrorCode(error);
+        if (workerFailureLogged) {
+          this.logger.debug(`Worker ${queueName} error: ${code}`);
+        } else {
+          workerFailureLogged = true;
+          this.logger.warn(`Worker ${queueName} interrupted: ${code}`);
+        }
+      });
+      worker.on('ready', () => {
+        workerFailureLogged = false;
+        this.logger.log(
+          `BullMQ worker ${queueName} ready at ${connection.options.host ?? 'unknown'}:${connection.options.port ?? 6379}`,
         );
       });
       worker.on(
@@ -291,10 +307,34 @@ export class BullMqJobQueue
     for (const connection of [
       ...this.workerConnections,
       ...this.queueConnections,
-      this.redis,
     ]) {
       connection.disconnect();
     }
+  }
+
+  /** Creates an explicitly configured producer or worker connection.
+   * @param {RedisConnectionKind} kind BullMQ connection role
+   * @returns {Redis} newly created ioredis connection
+   * @throws {Error} if ioredis cannot parse the configured connection URL
+   */
+  private createConnection(kind: RedisConnectionKind): Redis {
+    const commonOptions: RedisOptions = {
+      connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
+      retryStrategy: (attempt: number): number =>
+        Math.min(attempt * 100, REDIS_MAX_RETRY_DELAY_MS),
+    };
+    if (kind === 'queue') {
+      return new Redis(this.env.redisUrl, {
+        ...commonOptions,
+        commandTimeout: REDIS_QUEUE_COMMAND_TIMEOUT_MS,
+        enableOfflineQueue: false,
+        maxRetriesPerRequest: 1,
+      });
+    }
+    return new Redis(this.env.redisUrl, {
+      ...commonOptions,
+      maxRetriesPerRequest: null,
+    });
   }
 
   /** Validates and dispatches a job to its registered handler.
@@ -319,6 +359,15 @@ export class BullMqJobQueue
           : JOB_DEFAULT_ATTEMPTS,
     };
     await handler(job.data, context);
+  }
+
+  /** Returns a safe error code for Redis and BullMQ connection events.
+   * @param {Error} error connection event error
+   * @returns {string} error code or UNKNOWN when unavailable
+   */
+  private redisErrorCode(error: Error): string {
+    if ('code' in error && typeof error.code === 'string') return error.code;
+    return 'UNKNOWN';
   }
 
   /** Removes Redis URLs from text before logging errors.

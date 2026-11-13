@@ -11,16 +11,8 @@ const LOCATION_MAX_AGE_HOURS = 24;
  * Utilizador efetivamente incluído na tabela de entregas de alerta.
  */
 export interface AlertRecipient {
-  /**
-   * Identificador do utilizador destinatário.
-   */
   userId: string;
-
-  /**
-   * Distância entre o utilizador e o incidente, em metros.
-   */
   distanceM: number | null;
-  /** Nome da primeira zona que intersecta o incidente, quando existe. */
   zoneName: string | null;
 }
 
@@ -28,14 +20,7 @@ export interface AlertRecipient {
  * Resultado da reserva de um lote de entregas.
  */
 export interface AlertDeliveryBatch {
-  /**
-   * Destinatários cujas entregas foram inseridas neste lote.
-   */
   recipients: AlertRecipient[];
-
-  /**
-   * Último utilizador candidato examinado, mesmo se a entrega já existia.
-   */
   lastCandidateUserId: string | null;
 }
 
@@ -43,16 +28,8 @@ export interface AlertDeliveryBatch {
  * Candidato elegível antes de reclamar a entrega.
  */
 interface AlertCandidate {
-  /**
-   * Identificador do utilizador candidato.
-   */
   userId: string;
-
-  /**
-   * Distância geográfica ao incidente, em metros.
-   */
   distanceM: number | null;
-  /** Nome da primeira zona que intersecta o incidente, quando existe. */
   zoneName: string | null;
 }
 
