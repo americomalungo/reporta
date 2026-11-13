@@ -80,6 +80,16 @@ export class NotificationRepository {
     });
   }
 
+  /** Finds one persisted notification by its identifier.
+   * @param {string} notificationId notification identifier
+   * @returns {Promise<Notification | null>} notification if it exists
+   */
+  findById(notificationId: string): Promise<Notification | null> {
+    return this.prismaService.notification.findUnique({
+      where: { id: notificationId },
+    });
+  }
+
   /**
    * Lista notificações de um utilizador por ordem cronológica decrescente.
    * @param {string} userId id do utilizador
@@ -191,6 +201,13 @@ export class NotificationRepository {
     return result.count;
   }
 
+  /**
+   * Reclama atomicamente notificações push de risco com lease livre ou expirada.
+   * @param {string} incidentId id do incidente associado
+   * @param {number} take número máximo de notificações a reclamar
+   * @returns {Promise<Notification[]>} notificações reclamadas
+   * @throws {Error} se a consulta à base de dados falhar
+   */
   claimPendingRiskAlerts(
     incidentId: string,
     take: number,

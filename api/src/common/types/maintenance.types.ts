@@ -27,3 +27,11 @@ export interface MaintenanceRunResult {
   /** Duração da execução em milissegundos. */
   durationMs: number;
 }
+
+/** HTTP response indicating a manual maintenance job was queued. */
+export interface MaintenanceQueuedResult {
+  /** BullMQ job identifier. */
+  jobId: string;
+  /** Indicates that the job was accepted for processing. */
+  queued: true;
+}

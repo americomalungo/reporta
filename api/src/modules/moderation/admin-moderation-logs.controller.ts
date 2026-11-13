@@ -6,6 +6,8 @@ import type { CursorPage } from '@/src/common/types/pagination.types';
 import { AdminModerationLogsQueryDto } from './dto/admin-moderation-logs-query.dto';
 import { AdminModerationLogDto } from './dto/admin-moderation-log.dto';
 import { AdminModerationLogsService } from './admin-moderation-logs.service';
+import { Throttle } from '@nestjs/throttler';
+import { RATE_LIMIT_ADMIN } from '@/src/common/constants/rate-limit.constants';
 
 /**
  * Endpoint administrativo de pesquisa da auditoria de moderação.
@@ -13,6 +15,7 @@ import { AdminModerationLogsService } from './admin-moderation-logs.service';
 @ApiTags('Admin')
 @Controller('admin/moderation-logs')
 @Roles(UserRole.ADMIN)
+@Throttle({ default: RATE_LIMIT_ADMIN })
 export class AdminModerationLogsController {
   /** Cria o controller de auditoria.
    * @param {AdminModerationLogsService} service consulta paginada

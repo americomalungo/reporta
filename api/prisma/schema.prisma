@@ -357,8 +357,8 @@ model Notification {
   isRead Boolean   @default(false)
   readAt DateTime?
 
-  pushSent   Boolean   @default(false)
-  pushSentAt DateTime?
+  pushSent      Boolean   @default(false)
+  pushSentAt    DateTime?
   pushClaimedAt DateTime?
 
   createdAt DateTime @default(now())
@@ -386,14 +386,6 @@ model AlertDelivery {
   @@unique([incidentId, userId])
   @@index([userId])
   @@map("alert_deliveries")
-}
-
-model MaintenanceJobLock {
-  job        String   @id
-  token      String
-  leaseUntil DateTime
-
-  @@map("maintenance_job_locks")
 }
 
 // ------------------------------------------------------------

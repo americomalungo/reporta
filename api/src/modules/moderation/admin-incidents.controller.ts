@@ -19,6 +19,8 @@ import { AdminIncidentsQueryDto } from './dto/admin-incidents-query.dto';
 import { RemoveIncidentDto } from './dto/remove-incident.dto';
 import { RestoreIncidentDto } from './dto/restore-incident.dto';
 import { ModerationService } from './moderation.service';
+import { Throttle } from '@nestjs/throttler';
+import { RATE_LIMIT_ADMIN } from '@/src/common/constants/rate-limit.constants';
 
 /**
  * Endpoints administrativos para a fila e as ações sobre incidentes.
@@ -26,6 +28,7 @@ import { ModerationService } from './moderation.service';
 @ApiTags('Admin')
 @Controller('admin/incidents')
 @Roles(UserRole.ADMIN)
+@Throttle({ default: RATE_LIMIT_ADMIN })
 export class AdminIncidentsController {
   /** Cria o controller administrativo de incidentes.
    * @param {ModerationService} moderationService coordenação de moderação

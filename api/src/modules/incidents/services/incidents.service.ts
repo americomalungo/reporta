@@ -15,7 +15,8 @@ import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.
 import { IncidentMediaRepository } from '@/src/infrastructure/repositories/incident-media.repository';
 import { MediaUrlService } from '../../media/media-url.service';
 import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
-import { AlertsService } from '@/src/modules/alerts/alerts.service';
+import { JobQueue } from '@/src/infrastructure/queue/job-queue';
+import { JobName } from '@/src/common/enums/queue.enums';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
 import type { CursorPage } from '@/src/common/types/pagination.types';
 import {
@@ -27,6 +28,10 @@ import { CreateIncidentDto } from '../dto/create-incident.dto';
 import { IncidentsQueryDto } from '../dto/incidents-query.dto';
 import { ReturnIncidentDto } from '../dto/return-incident.dto';
 
+/** Validates the two supported incident feed cursor variants.
+ * @param {unknown} value decoded cursor value
+ * @returns {value is IncidentSearchCursor} true when the value has a valid feed cursor shape
+ */
 function isFeedCursor(value: unknown): value is IncidentSearchCursor {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
@@ -61,14 +66,23 @@ function isFeedCursor(value: unknown): value is IncidentSearchCursor {
  */
 @Injectable()
 export class IncidentsService {
+  /** Logger for queue submission failures that must not fail incident creation. */
   private readonly logger = new Logger(IncidentsService.name);
 
+  /** Creates the incident service.
+   * @param {IncidentsRepository} incidentsRepository incident persistence and queries
+   * @param {IncidentMediaRepository} incidentMediaRepository media persistence
+   * @param {CategoryRepository} categoryRepository category lookup
+   * @param {VoteRepository} voteRepository vote lookup
+   * @param {JobQueue} jobQueue asynchronous alert dispatch queue
+   * @param {MediaUrlService} mediaUrlService signed media URL generation
+   */
   constructor(
     private readonly incidentsRepository: IncidentsRepository,
     private readonly incidentMediaRepository: IncidentMediaRepository,
     private readonly categoryRepository: CategoryRepository,
     private readonly voteRepository: VoteRepository,
-    private readonly alertsService: AlertsService,
+    private readonly jobQueue: JobQueue,
     private readonly mediaUrlService: MediaUrlService,
   ) {}
 
@@ -116,14 +130,22 @@ export class IncidentsService {
     );
 
     if (category.isRisk) {
-      void this.alertsService
-        .dispatchRiskAlert(id)
-        .catch((error: unknown) =>
-          this.logger.error(
-            `Falha ao despachar o alerta de risco do incidente ${id}`,
-            error instanceof Error ? error.stack : String(error),
-          ),
+      try {
+        await this.jobQueue.enqueue(
+          JobName.DISPATCH_RISK_ALERT,
+          { incidentId: id },
+          {
+            jobId: `${JobName.DISPATCH_RISK_ALERT}-${id}`,
+            attempts: 5,
+            backoffMs: 5000,
+          },
         );
+      } catch (error: unknown) {
+        this.logger.error(
+          `Falha ao pôr o alerta de risco do incidente ${id} em fila`,
+          error instanceof Error ? error.message : 'Erro desconhecido na fila',
+        );
+      }
     }
 
     return response;

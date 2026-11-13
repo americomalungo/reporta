@@ -9,7 +9,8 @@ import { IncidentStatus, VoteType } from '@/src/common/enums/incidents.enums';
 import type { User } from '@/src/common/types/entities.types';
 import { IncidentsRepository } from '@/src/infrastructure/repositories/incident.repository';
 import { VoteRepository } from '@/src/infrastructure/repositories/vote.repository';
-import { ModerationService } from '@/src/modules/moderation/moderation.service';
+import { JobQueue } from '@/src/infrastructure/queue/job-queue';
+import { JobName } from '@/src/common/enums/queue.enums';
 import { VoteIncidentDto } from '../dto/vote-incident.dto';
 import { ReturnVoteDto } from '../dto/return-vote.dto';
 
@@ -19,10 +20,16 @@ import { ReturnVoteDto } from '../dto/return-vote.dto';
 @Injectable()
 export class VotesService {
   private readonly logger = new Logger(VotesService.name);
+
+  /** Creates the vote service.
+   * @param {IncidentsRepository} incidentsRepository incident lookup
+   * @param {VoteRepository} voteRepository vote persistence
+   * @param {JobQueue} jobQueue asynchronous moderation queue
+   */
   constructor(
     private readonly incidentsRepository: IncidentsRepository,
     private readonly voteRepository: VoteRepository,
-    private readonly moderationService: ModerationService,
+    private readonly jobQueue: JobQueue,
   ) {}
 
   /**
@@ -74,15 +81,18 @@ export class VotesService {
       dto.type,
     );
     if (dto.type === VoteType.DISCONFIRM) {
-      void this.moderationService
-        .evaluateIncidentAfterVote(incidentId)
-        .catch((error: unknown) => {
-          // O voto já foi persistido; uma falha de avaliação não altera a resposta.
-          this.logger.error(
-            'Falha ao avaliar moderação após voto',
-            error instanceof Error ? error.stack : String(error),
-          );
-        });
+      try {
+        await this.jobQueue.enqueue(
+          JobName.EVALUATE_INCIDENT_MODERATION,
+          { incidentId },
+          { attempts: 5, backoffMs: 5000 },
+        );
+      } catch (error: unknown) {
+        this.logger.error(
+          `Falha ao pôr avaliação de moderação do incidente ${incidentId} em fila`,
+          error instanceof Error ? error.message : 'Erro desconhecido na fila',
+        );
+      }
     }
 
     return {

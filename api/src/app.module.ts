@@ -15,11 +15,19 @@ import { APP_GUARD } from '@nestjs/core';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
-import { ScheduleModule } from '@nestjs/schedule';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
+import { AlertsModule } from './modules/alerts/alerts.module';
+import { CacheModule } from './infrastructure/cache/cache.module';
+import { QueueModule } from './infrastructure/queue/queue.module';
+import { RateLimitModule } from './infrastructure/rate-limit/rate-limit.module';
+import { RedisThrottlerStorage } from './infrastructure/rate-limit/redis-throttler.storage';
+import { getRateLimitTracker } from './infrastructure/rate-limit/rate-limit.config';
+import { RATE_LIMIT_DEFAULT } from './common/constants/rate-limit.constants';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
+/** Root NestJS module composing infrastructure and application features. */
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate }),
@@ -35,18 +43,31 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     EnvModule,
     FirebaseModule,
     StorageModule,
-    ScheduleModule.forRoot(),
+    CacheModule,
+    QueueModule,
+    RateLimitModule,
+    ThrottlerModule.forRootAsync({
+      imports: [RateLimitModule],
+      inject: [RedisThrottlerStorage],
+      useFactory: (storage: RedisThrottlerStorage) => ({
+        storage,
+        throttlers: [{ name: 'default', ...RATE_LIMIT_DEFAULT }],
+        getTracker: getRateLimitTracker,
+      }),
+    }),
     PrismaModule,
     AuthModule,
     UsersModule,
     IncidentsModule,
     NotificationsModule,
     MaintenanceModule,
+    AlertsModule,
   ],
   controllers: [AppController],
   providers: [
     { provide: APP_GUARD, useClass: FirebaseAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}

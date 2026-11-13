@@ -24,6 +24,8 @@ import type { User } from '@/src/common/types/entities.types';
 import { ReturnMediaDto } from './dto/return-media.dto';
 import { MediaService } from './media.service';
 import { UploadedImageInput } from './image-processor.service';
+import { Throttle } from '@nestjs/throttler';
+import { RATE_LIMIT_PHOTO_UPLOAD } from '@/src/common/constants/rate-limit.constants';
 
 /**
  * Traduz as exceções HTTP que o Nest cria a partir dos erros do Multer.
@@ -119,6 +121,7 @@ export class IncidentMediaController {
    * @throws {BadRequestException} se o pedido exceder três ficheiros ou contiver uma imagem inválida
    */
   @Post()
+  @Throttle({ default: RATE_LIMIT_PHOTO_UPLOAD })
   @HttpCode(HttpStatus.OK)
   @ApiConsumes('multipart/form-data')
   @ApiBody({

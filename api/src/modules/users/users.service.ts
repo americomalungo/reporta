@@ -160,27 +160,23 @@ export class UsersService {
     const last = page.at(-1);
 
     const data = !isAdmin
-      ? page.map(
-          (u): PublicUserDto => ({
-            id: u.id,
-            reputationScore: u.reputationScore,
-            name: u.name,
-            avatarUrl: u.avatarUrl,
-          }),
-        )
-      : page.map(
-          (u): ReturnUserDto => ({
-            id: u.id,
-            reputationScore: u.reputationScore,
-            name: u.name,
-            role: u.role ?? UserRole.USER,
-            email: u.email,
-            phone: u.phone ?? undefined,
-            alertsEnabled: u.alertsEnabled,
-            avatarUrl: u.avatarUrl ?? undefined,
-            alertRadiusM: u.alertRadiusM,
-          }),
-        );
+      ? page.map((u): PublicUserDto => ({
+          id: u.id,
+          reputationScore: u.reputationScore,
+          name: u.name,
+          avatarUrl: u.avatarUrl,
+        }))
+      : page.map((u): ReturnUserDto => ({
+          id: u.id,
+          reputationScore: u.reputationScore,
+          name: u.name,
+          role: u.role ?? UserRole.USER,
+          email: u.email,
+          phone: u.phone ?? undefined,
+          alertsEnabled: u.alertsEnabled,
+          avatarUrl: u.avatarUrl ?? undefined,
+          alertRadiusM: u.alertRadiusM,
+        }));
     return {
       data,
       hasNextPage,

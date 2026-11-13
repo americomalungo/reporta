@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  OnModuleInit,
   NotFoundException,
 } from '@nestjs/common';
 import { AccountStatus, UserRole } from '@/src/common/enums/users.enums';
@@ -29,20 +30,22 @@ import { AdminUserRepository } from '@/src/infrastructure/repositories/admin-use
 import { SuspendUserDto } from './dto/suspend-user.dto';
 import { BanUserDto } from './dto/ban-user.dto';
 import { RestrictPostingDto } from './dto/restrict-posting.dto';
-import { Cron } from '@nestjs/schedule';
-import { EnvService } from '@/src/infrastructure/env/env.service';
+import { JobQueue } from '@/src/infrastructure/queue/job-queue';
+import { JobName } from '@/src/common/enums/queue.enums';
 
 /**
  * Coordena regras de moderação e efeitos externos.
  */
 @Injectable()
-export class ModerationService {
+export class ModerationService implements OnModuleInit {
   private readonly logger = new Logger(ModerationService.name);
   /** Cria o serviço de moderação.
    * @param {ModerationRepository} moderationRepository transições automáticas
    * @param {UserRepository} userRepository consulta semântica de utilizadores
    * @param {NotificationDispatcherService} notificationDispatcher notificações sem falha propagada
    * @param {AuthService} authService gestão de contas Firebase
+   * @param {AdminUserRepository} adminUserRepository operações administrativas de utilizadores
+   * @param {JobQueue} jobQueue background moderation queue
    */
   constructor(
     private readonly moderationRepository: ModerationRepository,
@@ -50,14 +53,30 @@ export class ModerationService {
     private readonly notificationDispatcher: NotificationDispatcherService,
     private readonly authService: AuthService,
     private readonly adminUserRepository: AdminUserRepository,
-    private readonly env: EnvService,
+    private readonly jobQueue: JobQueue,
   ) {}
 
-  @Cron('*/5 * * * *', { name: 'retry-auto-moderation', timeZone: 'Africa/Luanda' })
+  /** Registers recurring and vote-triggered moderation processors.
+   * @returns {void} handler registration completion
+   */
+  onModuleInit(): void {
+    this.jobQueue.registerHandler(JobName.RETRY_AUTO_MODERATION, async () =>
+      this.retryPendingAutoModeration(),
+    );
+    this.jobQueue.registerHandler(
+      JobName.EVALUATE_INCIDENT_MODERATION,
+      async (payload) => this.evaluateIncidentAfterVote(payload.incidentId),
+    );
+  }
+
+  /**
+   * Reavalia incidentes pendentes de remoção automática.
+   * @returns {Promise<void>} conclusão do lote de moderação
+   * @throws {Error} se a consulta ou avaliação de um incidente falhar
+   */
   async retryPendingAutoModeration(): Promise<void> {
-    if (!this.env.jobsEnabled) return;
-    const incidentIds = await this.moderationRepository
-      .findIncidentsPendingAutoRemoval(500);
+    const incidentIds =
+      await this.moderationRepository.findIncidentsPendingAutoRemoval(500);
     for (const incidentId of incidentIds) {
       await this.evaluateIncidentAfterVote(incidentId);
     }
@@ -68,58 +87,37 @@ export class ModerationService {
    * @returns {Promise<void>} conclusão da avaliação
    */
   async evaluateIncidentAfterVote(incidentId: string): Promise<void> {
-    try {
-      const result =
-        await this.moderationRepository.autoRemoveIncidentIfThresholdReached(
-          incidentId,
-        );
-      if (!result) return;
-      const user = await this.userRepository.findById(result.authorId);
-      await this.notificationDispatcher.notify(result.authorId, {
-        type: NotificationType.INCIDENT_REMOVED,
-        title: 'Incidente removido',
-        body: 'A comunidade confirmou que o incidente não deve permanecer ativo.',
+    const result =
+      await this.moderationRepository.autoRemoveIncidentIfThresholdReached(
         incidentId,
+      );
+    if (!result) return;
+    const user = await this.userRepository.findById(result.authorId);
+    await this.notificationDispatcher.notify(result.authorId, {
+      type: NotificationType.INCIDENT_REMOVED,
+      title: 'Incidente removido',
+      body: 'A comunidade confirmou que o incidente não deve permanecer ativo.',
+      incidentId,
+      push: false,
+    });
+    if (result.penalty === 'POSTING_RESTRICTED')
+      await this.notificationDispatcher.notify(result.authorId, {
+        type: NotificationType.POSTING_RESTRICTED,
+        title: 'Publicações temporariamente limitadas',
+        body: `A sua conta está impedida de publicar incidentes durante ${POSTING_BLOCK_DAYS} dias.`,
         push: false,
       });
-      if (result.penalty === 'POSTING_RESTRICTED')
-        await this.notificationDispatcher.notify(result.authorId, {
-          type: NotificationType.POSTING_RESTRICTED,
-          title: 'Publicações temporariamente limitadas',
-          body: `A sua conta está impedida de publicar incidentes durante ${POSTING_BLOCK_DAYS} dias.`,
-          push: false,
-        });
-      if (result.penalty === 'BANNED') {
-        await this.notificationDispatcher.notify(result.authorId, {
-          type: NotificationType.ACCOUNT_BANNED,
-          title: 'Conta desativada',
-          body: 'A sua conta foi desativada após várias remoções de incidentes.',
-          push: false,
-        });
-        if (user?.status === AccountStatus.BANNED) {
-          try {
-            await this.authService.disableUser(user.firebaseUid);
-          } catch (error: unknown) {
-            this.logger.error(
-              'Falha ao desativar a conta automaticamente no Firebase',
-              error instanceof Error ? error.stack : String(error),
-            );
-          }
-          try {
-            await this.authService.revokeUserSessions(user.firebaseUid);
-          } catch (error: unknown) {
-            this.logger.error(
-              'Falha ao revogar sessões da conta banida automaticamente',
-              error instanceof Error ? error.stack : String(error),
-            );
-          }
-        }
+    if (result.penalty === 'BANNED') {
+      await this.notificationDispatcher.notify(result.authorId, {
+        type: NotificationType.ACCOUNT_BANNED,
+        title: 'Conta desativada',
+        body: 'A sua conta foi desativada após várias remoções de incidentes.',
+        push: false,
+      });
+      if (user?.status === AccountStatus.BANNED) {
+        await this.authService.disableUser(user.firebaseUid);
+        await this.authService.revokeUserSessions(user.firebaseUid);
       }
-    } catch (error: unknown) {
-      this.logger.error(
-        `Falha ao avaliar moderação do incidente ${incidentId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
     }
   }
 

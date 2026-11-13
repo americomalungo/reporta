@@ -1,7 +1,6 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
-import { Cron } from '@nestjs/schedule';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { MaintenanceJob } from '@/src/common/enums/maintenance.enums';
+import { JobName } from '@/src/common/enums/queue.enums';
 import {
   CLEANUP_MEDIA_BATCH_SIZE,
   EXPIRE_INCIDENTS_BATCH_SIZE,
@@ -9,6 +8,9 @@ import {
   MAINTENANCE_MAX_BATCH_ITERATIONS,
   ORPHAN_MIN_AGE_HOURS,
   ORPHAN_SCAN_PAGE_SIZE,
+  ORPHAN_SCAN_MAX_PAGES,
+  ORPHAN_SCAN_CURSOR_CACHE_KEY,
+  ORPHAN_SCAN_CURSOR_TTL_MS,
   LIFT_SUSPENSIONS_BATCH_SIZE,
 } from '@/src/common/constants/maintenance.constants';
 import { NotificationType } from '@/src/common/enums/notifications.enums';
@@ -17,22 +19,43 @@ import { UserRepository } from '@/src/infrastructure/repositories/user.repositor
 import { IncidentMediaRepository } from '@/src/infrastructure/repositories/incident-media.repository';
 import { StorageService } from '@/src/infrastructure/storage/storage.service';
 import { NotificationDispatcherService } from '@/src/modules/notifications/notification-dispatcher.service';
-import { EnvService } from '@/src/infrastructure/env/env.service';
-import type { MaintenanceRunResult } from '@/src/common/types/maintenance.types';
+import { CacheService } from '@/src/infrastructure/cache/cache.service';
+import { JobQueue } from '@/src/infrastructure/queue/job-queue';
+import type { EnqueueResult } from '@/src/common/types/jobs.types';
 
-/** Executa jobs de manutenção de forma idempotente com lease partilhada na base de dados. */
+/** Maps a validated manual maintenance name to its queue job.
+ * @param {MaintenanceJob} job requested maintenance operation
+ * @returns {JobName} matching queue job
+ */
+function getMaintenanceJobName(job: MaintenanceJob): JobName {
+  switch (job) {
+    case MaintenanceJob.EXPIRE_INCIDENTS:
+      return JobName.EXPIRE_INCIDENTS;
+    case MaintenanceJob.LIFT_SUSPENSIONS:
+      return JobName.LIFT_SUSPENSIONS;
+    case MaintenanceJob.CLEANUP_MEDIA:
+      return JobName.CLEANUP_MEDIA;
+    case MaintenanceJob.SCAN_ORPHANS:
+      return JobName.SCAN_ORPHANS;
+    case MaintenanceJob.HOUSEKEEPING:
+      return JobName.HOUSEKEEPING;
+  }
+}
+
+/** Executes idempotent maintenance jobs through BullMQ workers. */
 @Injectable()
-export class MaintenanceService {
+export class MaintenanceService implements OnModuleInit {
+  /** Logger for completed maintenance handler summaries. */
   private readonly logger = new Logger(MaintenanceService.name);
-  private readonly runningJobs = new Set<MaintenanceJob>();
 
-  /** Cria o executor dos jobs de manutenção.
-   * @param {MaintenanceRepository} maintenanceRepository alterações de expiração e retenção
-   * @param {UserRepository} userRepository reativação atómica das suspensões
-   * @param {IncidentMediaRepository} mediaRepository consulta e remoção das linhas de media
-   * @param {StorageService} storageService armazenamento privado
-   * @param {NotificationDispatcherService} notificationDispatcher notificações best effort
-   * @param {EnvService} env configuração de ativação dos crons
+  /** Creates the maintenance job handlers.
+   * @param {MaintenanceRepository} maintenanceRepository expiry and retention operations
+   * @param {UserRepository} userRepository expired suspension operations
+   * @param {IncidentMediaRepository} mediaRepository media row operations
+   * @param {StorageService} storageService private object storage
+   * @param {NotificationDispatcherService} notificationDispatcher best-effort notifications
+   * @param {CacheService} cacheService continuation cursor cache
+   * @param {JobQueue} jobQueue queue abstraction for manual runs
    */
   constructor(
     private readonly maintenanceRepository: MaintenanceRepository,
@@ -40,128 +63,73 @@ export class MaintenanceService {
     private readonly mediaRepository: IncidentMediaRepository,
     private readonly storageService: StorageService,
     private readonly notificationDispatcher: NotificationDispatcherService,
-    private readonly env: EnvService,
+    private readonly cacheService: CacheService,
+    private readonly jobQueue: JobQueue,
   ) {}
 
-  /** Expira incidentes ativos vencidos a cada cinco minutos.
-   * @returns {Promise<void>} conclusão do disparo
+  /** Registers all maintenance job processors after module construction.
+   * @returns {void} handler registration completion
    */
-  @Cron('*/5 * * * *', { name: 'expire-incidents', timeZone: 'Africa/Luanda' })
-  async cronExpireIncidents(): Promise<void> {
-    await this.runScheduled(MaintenanceJob.EXPIRE_INCIDENTS);
-  }
-
-  /** Reativa suspensões vencidas a cada cinco minutos.
-   * @returns {Promise<void>} conclusão do disparo
-   */
-  @Cron('*/5 * * * *', { name: 'lift-suspensions', timeZone: 'Africa/Luanda' })
-  async cronLiftSuspensions(): Promise<void> {
-    await this.runScheduled(MaintenanceJob.LIFT_SUSPENSIONS);
-  }
-
-  /** Limpa media retida a cada hora.
-   * @returns {Promise<void>} conclusão do disparo
-   */
-  @Cron('0 * * * *', { name: 'cleanup-media', timeZone: 'Africa/Luanda' })
-  async cronCleanupMedia(): Promise<void> {
-    await this.runScheduled(MaintenanceJob.CLEANUP_MEDIA);
-  }
-
-  /** Procura objetos sem referência diariamente às 03:30.
-   * @returns {Promise<void>} conclusão do disparo
-   */
-  @Cron('30 3 * * *', { name: 'scan-orphans', timeZone: 'Africa/Luanda' })
-  async cronScanOrphans(): Promise<void> {
-    await this.runScheduled(MaintenanceJob.SCAN_ORPHANS);
-  }
-
-  /** Apaga dados auxiliares diariamente às 04:00.
-   * @returns {Promise<void>} conclusão do disparo
-   */
-  @Cron('0 4 * * *', { name: 'housekeeping', timeZone: 'Africa/Luanda' })
-  async cronHousekeeping(): Promise<void> {
-    await this.runScheduled(MaintenanceJob.HOUSEKEEPING);
-  }
-
-  /** Executa manualmente um job e devolve duração e total afetado.
-   * @param {MaintenanceJob} job job a executar
-   * @returns {Promise<MaintenanceRunResult>} resumo da execução
-   * @throws {ConflictException} se o mesmo job já estiver em execução
-   */
-  async execute(job: MaintenanceJob): Promise<MaintenanceRunResult> {
-    if (this.runningJobs.has(job))
-      throw new ConflictException('Job já em execução');
-    this.runningJobs.add(job);
-    const lockToken = randomUUID();
-    let locked: boolean;
-    try {
-      locked = await this.maintenanceRepository.acquireJobLock(job, lockToken);
-    } catch (error: unknown) {
-      this.runningJobs.delete(job);
-      throw error;
-    }
-    if (!locked) {
-      this.runningJobs.delete(job);
-      throw new ConflictException('Job já em execução noutra instância');
-    }
-    const heartbeat = setInterval(() => {
-      void this.maintenanceRepository
-        .renewJobLock(job, lockToken)
-        .then((renewed) => {
-          if (!renewed) this.logger.error(`Lease do job ${job} foi perdida`);
-        })
-        .catch((error: unknown) =>
-          this.logger.error(
-            `Falha ao renovar lease do job ${job}`,
-            error instanceof Error ? error.stack : String(error),
-          ),
-        );
-    }, 20_000);
-    const startedAt = Date.now();
-    let affected = 0;
-    try {
-      switch (job) {
-        case MaintenanceJob.EXPIRE_INCIDENTS:
-          affected = await this.expireIncidents();
-          break;
-        case MaintenanceJob.LIFT_SUSPENSIONS:
-          affected = await this.liftSuspensions();
-          break;
-        case MaintenanceJob.CLEANUP_MEDIA:
-          affected = await this.cleanupMedia();
-          break;
-        case MaintenanceJob.SCAN_ORPHANS:
-          affected = await this.scanOrphans();
-          break;
-        case MaintenanceJob.HOUSEKEEPING:
-          affected = await this.housekeeping();
-          break;
-      }
-    } catch (error: unknown) {
-      const details =
-        error instanceof Error
-          ? `${error.name}: ${error.message}\n${error.stack ?? ''}`
-          : String(error);
-      this.logger.error(`Falha no job ${job}`, details);
-      throw error;
-    } finally {
-      clearInterval(heartbeat);
-      this.runningJobs.delete(job);
-      try {
-        await this.maintenanceRepository.releaseJobLock(job, lockToken);
-      } catch (error: unknown) {
-        this.logger.error(
-          `Falha ao libertar lease do job ${job}`,
-          error instanceof Error ? error.stack : String(error),
-        );
-      }
-    }
-    const durationMs = Date.now() - startedAt;
-    if (affected > 0)
-      this.logger.log(
-        `Job ${job}: ${affected} itens afetados em ${durationMs} ms`,
+  onModuleInit(): void {
+    this.jobQueue.registerHandler(JobName.EXPIRE_INCIDENTS, async () => {
+      await this.runMaintenanceJob(MaintenanceJob.EXPIRE_INCIDENTS, () =>
+        this.expireIncidents(),
       );
-    return { job, affected, durationMs };
+    });
+    this.jobQueue.registerHandler(JobName.LIFT_SUSPENSIONS, async () => {
+      await this.runMaintenanceJob(MaintenanceJob.LIFT_SUSPENSIONS, () =>
+        this.liftSuspensions(),
+      );
+    });
+    this.jobQueue.registerHandler(JobName.CLEANUP_MEDIA, async () => {
+      await this.runMaintenanceJob(MaintenanceJob.CLEANUP_MEDIA, () =>
+        this.cleanupMedia(),
+      );
+    });
+    this.jobQueue.registerHandler(JobName.SCAN_ORPHANS, async () => {
+      await this.runMaintenanceJob(MaintenanceJob.SCAN_ORPHANS, () =>
+        this.scanOrphans(),
+      );
+    });
+    this.jobQueue.registerHandler(JobName.HOUSEKEEPING, async () => {
+      await this.runMaintenanceJob(MaintenanceJob.HOUSEKEEPING, () =>
+        this.housekeeping(),
+      );
+    });
+  }
+
+  /** Enqueues a manually requested maintenance operation with simple deduplication.
+   * @param {MaintenanceJob} job validated maintenance job name
+   * @returns {Promise<EnqueueResult>} queued job identifier and deduplication state
+   * @throws {Error} if the queue backend is unavailable
+   */
+  async enqueueManual(job: MaintenanceJob): Promise<EnqueueResult> {
+    return this.jobQueue.enqueue(
+      getMaintenanceJobName(job),
+      {},
+      {
+        attempts: 3,
+        backoffMs: 5000,
+        deduplicationId: `manual-${job}`,
+      },
+    );
+  }
+
+  /** Runs one worker action and logs its affected count and duration.
+   * @param {MaintenanceJob} job maintenance operation name
+   * @param {() => Promise<number>} action operation that returns affected count
+   * @returns {Promise<void>} completion of the maintenance action
+   * @throws {Error} if the operation fails so BullMQ can retry it
+   */
+  private async runMaintenanceJob(
+    job: MaintenanceJob,
+    action: () => Promise<number>,
+  ): Promise<void> {
+    const startedAt = Date.now();
+    const affected = await action();
+    this.logger.log(
+      `Job ${job}: affected=${affected}, durationMs=${Date.now() - startedAt}`,
+    );
   }
 
   /** Expira lotes limitados de incidentes.
@@ -242,10 +210,14 @@ export class MaintenanceService {
   private async scanOrphans(): Promise<number> {
     const cutoff = Date.now() - ORPHAN_MIN_AGE_HOURS * 60 * 60 * 1000;
     let affected = 0;
-    let continuationToken: string | undefined;
-    while (true) {
+    const continuationToken = await this.cacheService.get(
+      ORPHAN_SCAN_CURSOR_CACHE_KEY,
+      (value: unknown): value is string => typeof value === 'string',
+    );
+    let nextToken = continuationToken ?? undefined;
+    for (let page = 0; page < ORPHAN_SCAN_MAX_PAGES; page += 1) {
       const result = await this.storageService.listObjects('incidents/', {
-        continuationToken,
+        continuationToken: nextToken,
         maxKeys: ORPHAN_SCAN_PAGE_SIZE,
       });
       const oldObjects = result.objects.filter(
@@ -256,8 +228,16 @@ export class MaintenanceService {
       const orphanKeys = paths.filter((path) => !existing.has(path));
       await this.storageService.remove(orphanKeys);
       affected += orphanKeys.length;
-      continuationToken = result.nextToken ?? undefined;
-      if (!continuationToken) break;
+      nextToken = result.nextToken ?? undefined;
+      if (!nextToken) {
+        await this.cacheService.del(ORPHAN_SCAN_CURSOR_CACHE_KEY);
+        break;
+      }
+      await this.cacheService.set(
+        ORPHAN_SCAN_CURSOR_CACHE_KEY,
+        nextToken,
+        ORPHAN_SCAN_CURSOR_TTL_MS,
+      );
     }
     return affected;
   }
@@ -310,19 +290,5 @@ export class MaintenanceService {
         `Housekeeping: tokens=${counts.pushTokens}, notificações=${counts.notifications}, entregas=${counts.alertDeliveries}, localizações=${counts.locations}`,
       );
     return total;
-  }
-
-  /** Dispara um job cron apenas quando ativado e sem sobreposição local.
-   * @param {MaintenanceJob} job job agendado
-   * @returns {Promise<void>} conclusão do disparo
-   */
-  private async runScheduled(job: MaintenanceJob): Promise<void> {
-    if (!this.env.jobsEnabled || this.runningJobs.has(job)) return;
-    try {
-      await this.execute(job);
-    } catch (error: unknown) {
-      if (error instanceof ConflictException) return;
-      throw error;
-    }
   }
 }

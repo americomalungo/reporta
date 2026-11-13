@@ -79,7 +79,14 @@ export class UserRepository {
     return this.prismaService.user.findUnique({ where: { id } });
   }
 
-  /** Lista uma página por cursor e pode incluir estados não ativos para administração. */
+  /**
+   * Lista utilizadores numa página ordenada por cursor estável.
+   * @param {boolean} includeInactive indica se inclui estados não ativos
+   * @param {UserListCursor | undefined} cursor cursor exclusivo da página anterior
+   * @param {number} take número máximo de utilizadores
+   * @returns {Promise<User[]>} utilizadores ordenados por criação e id
+   * @throws {Error} se a consulta à base de dados falhar
+   */
   listUsersPage(
     includeInactive: boolean,
     cursor: UserListCursor | undefined,
@@ -88,12 +95,14 @@ export class UserRepository {
     return this.prismaService.user.findMany({
       where: {
         ...(includeInactive ? {} : { status: AccountStatus.ACTIVE }),
-        ...(cursor ? {
-          OR: [
-            { createdAt: { lt: cursor.createdAt } },
-            { createdAt: cursor.createdAt, id: { lt: cursor.id } },
-          ],
-        } : {}),
+        ...(cursor
+          ? {
+              OR: [
+                { createdAt: { lt: cursor.createdAt } },
+                { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+              ],
+            }
+          : {}),
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take,

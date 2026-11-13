@@ -10,14 +10,55 @@ import { UserRole } from '@/src/common/enums/users.enums';
 import { ReturnCategoryDto } from '../dto/return-category.dto';
 import { CreateCategoryDto } from '../dto/create-category.dto';
 import { UpdateCategoryDto } from '../dto/update-category.dto';
+import { CacheService } from '@/src/infrastructure/cache/cache.service';
+import {
+  ACTIVE_CATEGORIES_CACHE_KEY,
+  CATEGORY_CACHE_TTL_MS,
+} from '@/src/common/constants/categories.constants';
+
+/** Guards a serializable array of category response objects.
+ * @param {unknown} value untrusted cached value
+ * @returns {value is ReturnCategoryDto[]} true if every category field matches its DTO type
+ */
+function isReturnCategoryArray(value: unknown): value is ReturnCategoryDto[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (category) =>
+        typeof category === 'object' &&
+        category !== null &&
+        'id' in category &&
+        typeof category.id === 'string' &&
+        'name' in category &&
+        typeof category.name === 'string' &&
+        'description' in category &&
+        (typeof category.description === 'string' ||
+          category.description === null) &&
+        'icon' in category &&
+        (typeof category.icon === 'string' || category.icon === null) &&
+        'color' in category &&
+        (typeof category.color === 'string' || category.color === null) &&
+        'isRisk' in category &&
+        typeof category.isRisk === 'boolean' &&
+        'slug' in category &&
+        typeof category.slug === 'string' &&
+        'isActive' in category &&
+        typeof category.isActive === 'boolean',
+    )
+  );
+}
 
 /** Coordena as operações de consulta e edição de categorias. */
 @Injectable()
 export class CategoryService {
   /** Cria o serviço de categorias.
    * @param {CategoryRepository} repository persistência das categorias
+   * @param {CacheService} cacheService active category cache
    */
-  constructor(private readonly repository: CategoryRepository) {}
+  constructor(
+    private readonly repository: CategoryRepository,
+    private readonly cacheService: CacheService,
+  ) {}
 
   /**
    * Função que cria uma categoria. Acessado pelo controlador só por admins
@@ -31,7 +72,7 @@ export class CategoryService {
     adminId: string,
   ): Promise<ReturnCategoryDto> {
     const name = this.normalizeName(dto.name);
-    return this.repository.createCategory(
+    const category = await this.repository.createCategory(
       {
         name,
         description: dto.description,
@@ -42,6 +83,17 @@ export class CategoryService {
       },
       adminId,
     );
+    await this.cacheService.del(ACTIVE_CATEGORIES_CACHE_KEY);
+    return {
+      id: category.id,
+      name: category.name,
+      description: category.description,
+      icon: category.icon,
+      color: category.color,
+      isRisk: category.isRisk,
+      slug: category.slug,
+      isActive: category.isActive,
+    };
   }
 
   /**
@@ -51,20 +103,27 @@ export class CategoryService {
    * @returns {Promise<ReturnCategoryDto[]>} categorias visíveis ao utilizador
    */
   async findAll(user: DecodedIdToken): Promise<ReturnCategoryDto[]> {
-    const categories = await this.repository.listCategories(
-      user.role === UserRole.ADMIN,
+    const includeInactive = user.role === UserRole.ADMIN;
+    const loadCategories = async (): Promise<ReturnCategoryDto[]> => {
+      const categories = await this.repository.listCategories(includeInactive);
+      return categories.map((category) => ({
+        id: category.id,
+        name: category.name,
+        description: category.description,
+        icon: category.icon,
+        color: category.color,
+        isRisk: category.isRisk,
+        slug: category.slug,
+        isActive: category.isActive,
+      }));
+    };
+    if (includeInactive) return loadCategories();
+    return this.cacheService.wrap(
+      ACTIVE_CATEGORIES_CACHE_KEY,
+      CATEGORY_CACHE_TTL_MS,
+      isReturnCategoryArray,
+      loadCategories,
     );
-
-    return categories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      description: category.description,
-      icon: category.icon,
-      color: category.color,
-      isRisk: category.isRisk,
-      slug: category.slug,
-      isActive: category.isActive,
-    }));
   }
 
   /**
@@ -132,7 +191,22 @@ export class CategoryService {
         isActive: updateCategoryDto.isActive,
       }),
     };
-    return this.repository.updateCategory(id, updateData, adminId);
+    const category = await this.repository.updateCategory(
+      id,
+      updateData,
+      adminId,
+    );
+    await this.cacheService.del(ACTIVE_CATEGORIES_CACHE_KEY);
+    return {
+      id: category.id,
+      name: category.name,
+      description: category.description,
+      icon: category.icon,
+      color: category.color,
+      isRisk: category.isRisk,
+      slug: category.slug,
+      isActive: category.isActive,
+    };
   }
 
   /** Normaliza e valida o nome usado na criação do slug.

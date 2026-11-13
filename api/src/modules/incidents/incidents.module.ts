@@ -12,12 +12,12 @@ import { CommentsService } from './services/comments.service';
 import { IncidentsService } from './services/incidents.service';
 import { VotesService } from './services/votes.service';
 import { UsersModule } from '../users/users.module';
-import { AlertsModule } from '../alerts/alerts.module';
 import { ModerationModule } from '../moderation/moderation.module';
-import { MediaModule } from '../media/midia.module';
+import { MediaModule } from '../media/media.module';
 
+/** Module containing incident, category, vote, and comment features. */
 @Module({
-  imports: [UsersModule, AlertsModule, ModerationModule, MediaModule],
+  imports: [UsersModule, ModerationModule, MediaModule],
   controllers: [
     IncidentsController,
     CategoriesController,

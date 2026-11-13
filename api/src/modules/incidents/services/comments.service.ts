@@ -140,7 +140,11 @@ export class CommentsService {
 
     const data = commentsPage.map((comment) => {
       const replies = repliesByParent.get(comment.id) ?? [];
-      return this.toReturnCommentDto(comment, replies.slice(0, 50), replies.length > 50);
+      return this.toReturnCommentDto(
+        comment,
+        replies.slice(0, 50),
+        replies.length > 50,
+      );
     });
 
     const lastComment = commentsPage.at(-1);
@@ -155,6 +159,15 @@ export class CommentsService {
     return { data, nextCursor, hasNextPage };
   }
 
+  /**
+   * Lista respostas visíveis de um comentário principal usando cursor.
+   * @param {string} incidentId id do incidente
+   * @param {string} parentId id do comentário principal
+   * @param {CommentsQueryDto} query cursor e limite da página
+   * @returns {Promise<CursorPage<ReturnCommentDto>>} página de respostas
+   * @throws {NotFoundException} se o incidente ou comentário principal não existir ou não for visível
+   * @throws {BadRequestException} se o cursor for inválido
+   */
   async findReplies(
     incidentId: string,
     parentId: string,
@@ -175,9 +188,10 @@ export class CommentsService {
     }
 
     const limit = query.limit ?? 20;
-    const cursor = query.cursor !== undefined
-      ? decodeCursor(query.cursor, isTimestampIdCursor)
-      : undefined;
+    const cursor =
+      query.cursor !== undefined
+        ? decodeCursor(query.cursor, isTimestampIdCursor)
+        : undefined;
     const rows = await this.commentRepository.findRepliesAfterCursor(
       parentId,
       cursor ? { createdAt: new Date(cursor.t), id: cursor.id } : undefined,
@@ -189,9 +203,10 @@ export class CommentsService {
     return {
       data: page.map((reply) => this.toReturnCommentDto(reply, [], false)),
       hasNextPage,
-      nextCursor: hasNextPage && last
-        ? encodeCursor({ t: last.createdAt.toISOString(), id: last.id })
-        : null,
+      nextCursor:
+        hasNextPage && last
+          ? encodeCursor({ t: last.createdAt.toISOString(), id: last.id })
+          : null,
     };
   }
 
@@ -260,7 +275,9 @@ export class CommentsService {
       },
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
-      replies: replies.map((reply) => this.toReturnCommentDto(reply, [], false)),
+      replies: replies.map((reply) =>
+        this.toReturnCommentDto(reply, [], false),
+      ),
       repliesHasMore,
     };
   }

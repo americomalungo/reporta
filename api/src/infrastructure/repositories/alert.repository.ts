@@ -67,6 +67,13 @@ export class AlertRepository {
    */
   constructor(private readonly prismaService: PrismaService) {}
 
+  /**
+   * Lista incidentes de risco ativos sem despacho concluído após o cursor.
+   * @param {string | null} afterId cursor exclusivo do incidente anterior
+   * @param {number} take máximo de ids a devolver
+   * @returns {Promise<string[]>} ids ordenados dos incidentes pendentes
+   * @throws {Error} se a consulta à base de dados falhar
+   */
   async findUndispatchedRiskIncidentIds(
     afterId: string | null,
     take: number,
@@ -85,6 +92,12 @@ export class AlertRepository {
     return incidents.map(({ id }) => id);
   }
 
+  /**
+   * Marca como concluído o despacho de um incidente ainda ativo.
+   * @param {string} incidentId identificador do incidente
+   * @returns {Promise<void>} conclusão da atualização
+   * @throws {Error} se a atualização à base de dados falhar
+   */
   async markDispatchComplete(incidentId: string): Promise<void> {
     await this.prismaService.incident.updateMany({
       where: { id: incidentId, status: 'ACTIVE', alertDispatchedAt: null },
@@ -92,6 +105,13 @@ export class AlertRepository {
     });
   }
 
+  /**
+   * Lista incidentes com notificações push pendentes e lease expirada.
+   * @param {string | null} afterId cursor exclusivo do incidente anterior
+   * @param {number} take máximo de ids a devolver
+   * @returns {Promise<string[]>} ids ordenados dos incidentes pendentes
+   * @throws {Error} se a consulta à base de dados falhar
+   */
   async findIncidentsWithPendingPush(
     afterId: string | null,
     take: number,
@@ -119,7 +139,7 @@ export class AlertRepository {
       orderBy: { incidentId: 'asc' },
       take,
     });
-    return rows.flatMap((row) => row.incidentId ? [row.incidentId] : []);
+    return rows.flatMap((row) => (row.incidentId ? [row.incidentId] : []));
   }
 
   /**

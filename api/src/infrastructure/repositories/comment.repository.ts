@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@/generated/prisma';
-import type { Comment as PrismaComment } from '@/generated/prisma';
+import type { Comment } from '@/src/common/types/entities.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { isPrismaError } from '../prisma/prisma-errors';
 
@@ -46,7 +46,7 @@ export class CommentRepository {
    * @param {string} commentId id do comentário
    * @returns {Promise<Comment | null>} comentário encontrado ou null
    */
-  async findById(commentId: string): Promise<PrismaComment | null> {
+  async findById(commentId: string): Promise<Comment | null> {
     return this.prismaService.comment.findUnique({
       where: { id: commentId },
     });
@@ -171,26 +171,36 @@ export class CommentRepository {
       return [];
     }
 
-    const pages = await Promise.all(parentIds.map((parentId) =>
-      this.prismaService.comment.findMany({
-        where: { parentId, isHidden: false },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        take: 51,
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              avatarUrl: true,
-              reputationScore: true,
+    const pages = await Promise.all(
+      parentIds.map((parentId) =>
+        this.prismaService.comment.findMany({
+          where: { parentId, isHidden: false },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: 51,
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                avatarUrl: true,
+                reputationScore: true,
+              },
             },
           },
-        },
-      }),
-    ));
+        }),
+      ),
+    );
     return pages.flat();
   }
 
+  /**
+   * Lista respostas visíveis de um comentário principal após o cursor.
+   * @param {string} parentId id do comentário principal
+   * @param {TopLevelCommentCursor | undefined} cursor cursor exclusivo
+   * @param {number} take número máximo de respostas
+   * @returns {Promise<CommentWithAuthor[]>} respostas ordenadas por criação e id
+   * @throws {Error} se a consulta à base de dados falhar
+   */
   findRepliesAfterCursor(
     parentId: string,
     cursor: TopLevelCommentCursor | undefined,
@@ -200,17 +210,26 @@ export class CommentRepository {
       where: {
         parentId,
         isHidden: false,
-        ...(cursor ? {
-          OR: [
-            { createdAt: { gt: cursor.createdAt } },
-            { createdAt: cursor.createdAt, id: { gt: cursor.id } },
-          ],
-        } : {}),
+        ...(cursor
+          ? {
+              OR: [
+                { createdAt: { gt: cursor.createdAt } },
+                { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+              ],
+            }
+          : {}),
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take,
       include: {
-        user: { select: { id: true, name: true, avatarUrl: true, reputationScore: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+            reputationScore: true,
+          },
+        },
       },
     });
   }

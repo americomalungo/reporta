@@ -1,5 +1,6 @@
 export type {
   Category,
+  Comment,
   Incident,
   IncidentMedia,
   ModerationLog,

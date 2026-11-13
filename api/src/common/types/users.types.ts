@@ -3,8 +3,11 @@ import { $Enums } from '@/generated/prisma';
 export type UserRole = $Enums.UserRole;
 export type AccountStatus = $Enums.AccountStatus;
 
+/** Stable cursor for listing users by creation timestamp and identifier. */
 export interface UserListCursor {
+  /** Data de criação usada como primeira parte do cursor estável. */
   createdAt: Date;
+  /** Identificador usado para desempatar datas iguais. */
   id: string;
 }
 

@@ -36,6 +36,12 @@ export class ModerationRepository {
    */
   constructor(private readonly prismaService: PrismaService) {}
 
+  /**
+   * Lista incidentes ativos que atingiram o limiar de remoção automática.
+   * @param {number} take máximo de ids a devolver
+   * @returns {Promise<string[]>} ids ordenados pela atualização mais antiga
+   * @throws {Error} se a consulta à base de dados falhar
+   */
   async findIncidentsPendingAutoRemoval(take: number): Promise<string[]> {
     const rows = await this.prismaService.$queryRaw<{ id: string }[]>`
       SELECT id FROM incidents

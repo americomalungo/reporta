@@ -4,12 +4,17 @@ import { CurrentDbUser } from '@/src/common/decorators/current-user.decorator';
 import { VoteIncidentDto } from '../dto/vote-incident.dto';
 import { ReturnVoteDto } from '../dto/return-vote.dto';
 import { VotesService } from '../services/votes.service';
+import { Throttle } from '@nestjs/throttler';
+import { RATE_LIMIT_VOTES } from '@/src/common/constants/rate-limit.constants';
 
 /**
  * Controller responsável pelas operações de voto em incidentes.
  */
 @Controller('incidents/:incidentId/vote')
 export class VotesController {
+  /** Creates the vote controller.
+   * @param {VotesService} votesService vote operations
+   */
   constructor(private readonly votesService: VotesService) {}
 
   /**
@@ -21,6 +26,7 @@ export class VotesController {
    * @throws {NotFoundException} se o incidente não existir
    */
   @Put()
+  @Throttle({ default: RATE_LIMIT_VOTES })
   vote(
     @Param('incidentId') incidentId: string,
     @Body() dto: VoteIncidentDto,
@@ -37,6 +43,7 @@ export class VotesController {
    * @throws {NotFoundException} se o incidente não existir ou o utilizador ainda não tiver votado
    */
   @Delete()
+  @Throttle({ default: RATE_LIMIT_VOTES })
   removeVote(
     @Param('incidentId') incidentId: string,
     @CurrentDbUser() user: User,

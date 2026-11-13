@@ -29,9 +29,23 @@ STORAGE_ACCESS_KEY_ID=...
 STORAGE_SECRET_ACCESS_KEY=...
 STORAGE_BUCKET=...
 JOBS_ENABLED=true
+REDIS_URL=redis://localhost:6379
+REDIS_KEY_PREFIX=reporta
+TRUST_PROXY_HOPS=0
 ```
 
-Use o endpoint e a região indicados pelo seu fornecedor S3. O bucket deve ser privado. `JOBS_ENABLED=false` desativa as rotinas agendadas, mas não os endpoints administrativos de manutenção.
+Use o endpoint e a região indicados pelo seu fornecedor S3. O bucket deve ser privado. `JOBS_ENABLED=false` desativa workers e agendamentos neste processo; a API continua a poder colocar jobs em fila.
+
+
+```
+
+O serviço publica a porta `6379` e usa obrigatoriamente `maxmemory-policy noeviction`, requisito do BullMQ para impedir a remoção de chaves internas das filas. Em produção, configure `REDIS_URL` com o URI `rediss://` fornecido pelo serviço Aiven; a ligação TLS é ativada pelo URI. `REDIS_KEY_PREFIX` (padrão `reporta`) separa chaves de cache, rate limit e BullMQ. `TRUST_PROXY_HOPS` (padrão `0`) só deve ser aumentado quando a API estiver atrás de um número conhecido de proxies confiáveis.
+
+As filas `alerts`, `moderation` e `maintenance` processam alertas de risco, pushes, moderação automática e manutenção. Os jobs periódicos são sincronizados ao iniciar a aplicação quando `JOBS_ENABLED=true`. Com `false`, não são criados workers nem agendamentos, mas os pedidos ainda podem ser aceites e enfileirados por outro processo ativo.
+
+O rate limit padrão é 120 pedidos por minuto por utilizador autenticado ou IP. Os limites específicos são: criação de incidentes 10/10 minutos, upload de fotos 20/10 minutos, comentários 30/minuto, votos 60/minuto e endpoints administrativos 60/minuto. Se Valkey estiver indisponível, o rate limit permite o pedido e regista um aviso.
+
+A cache guarda a lista pública de categorias ativas durante 10 minutos e é invalidada quando uma categoria é criada ou editada. Falhas de cache são tratadas como cache miss.
 
 ## Instalar e executar
 
@@ -63,7 +77,7 @@ yarn start:prod
 - Incidentes geolocalizados, feed paginado, comentários e votos.
 - Upload de imagens convertidas para WebP e servidas por URLs assinadas.
 - Alertas de risco por proximidade e notificações in-app/push.
-- Rotinas agendadas para expiração, retenção e limpeza de dados.
+- Filas BullMQ para alertas, moderação e manutenção, com agendamentos configuráveis.
 
 ## Testes e lint
 

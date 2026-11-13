@@ -24,3 +24,9 @@ export const NOTIFICATION_RETENTION_DAYS = 90;
 export const ALERT_DELIVERY_RETENTION_DAYS = 30;
 /** Retenção de localizações conhecidas, em dias. */
 export const LOCATION_RETENTION_DAYS = 7;
+/** Maximum object storage pages scanned in one orphan cleanup execution. */
+export const ORPHAN_SCAN_MAX_PAGES = 50;
+/** Lifetime in milliseconds for the orphan scan continuation cursor. */
+export const ORPHAN_SCAN_CURSOR_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Cache key storing the orphan scan continuation cursor. */
+export const ORPHAN_SCAN_CURSOR_CACHE_KEY = 'maintenance:scan-orphans:cursor';

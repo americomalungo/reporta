@@ -15,6 +15,8 @@ import { CreateIncidentDto } from '../dto/create-incident.dto';
 import { IncidentsQueryDto } from '../dto/incidents-query.dto';
 import { ReturnIncidentDto } from '../dto/return-incident.dto';
 import { IncidentsService } from '../services/incidents.service';
+import { Throttle } from '@nestjs/throttler';
+import { RATE_LIMIT_INCIDENT_CREATE } from '@/src/common/constants/rate-limit.constants';
 
 /**
  * Controller responsável pela gestão de incidentes.
@@ -22,6 +24,9 @@ import { IncidentsService } from '../services/incidents.service';
  */
 @Controller('incidents')
 export class IncidentsController {
+  /** Creates the incidents controller.
+   * @param {IncidentsService} incidentsService incident operations
+   */
   constructor(private readonly incidentsService: IncidentsService) {}
 
   /**
@@ -32,6 +37,7 @@ export class IncidentsController {
    * @returns {Promise<ReturnIncidentDto>} incidente criado
    */
   @Post()
+  @Throttle({ default: RATE_LIMIT_INCIDENT_CREATE })
   create(
     @Body() createIncidentDto: CreateIncidentDto,
     @CurrentDbUser() dbUser: User,

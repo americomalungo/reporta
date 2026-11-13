@@ -16,6 +16,8 @@ import { ModerationService } from './moderation.service';
 import { SuspendUserDto } from './dto/suspend-user.dto';
 import { BanUserDto } from './dto/ban-user.dto';
 import { RestrictPostingDto } from './dto/restrict-posting.dto';
+import { Throttle } from '@nestjs/throttler';
+import { RATE_LIMIT_ADMIN } from '@/src/common/constants/rate-limit.constants';
 
 /**
  * Endpoints administrativos para a gestão de contas.
@@ -23,6 +25,7 @@ import { RestrictPostingDto } from './dto/restrict-posting.dto';
 @ApiTags('Admin')
 @Controller('admin/users')
 @Roles(UserRole.ADMIN)
+@Throttle({ default: RATE_LIMIT_ADMIN })
 export class AdminUsersController {
   /** Cria o controller administrativo de utilizadores.
    * @param {ModerationService} moderationService coordenação das ações

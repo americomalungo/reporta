@@ -14,12 +14,18 @@ import { CommentsQueryDto } from '../dto/comments-query.dto';
 import { CreateCommentDto } from '../dto/create-comment.dto';
 import { ReturnCommentDto } from '../dto/return-comment.dto';
 import { CommentsService } from '../services/comments.service';
+import { Throttle } from '@nestjs/throttler';
+import { RATE_LIMIT_COMMENTS } from '@/src/common/constants/rate-limit.constants';
 
 /**
  * Controller responsável pela gestão de comentários dos incidentes.
  */
 @Controller('incidents/:incidentId/comments')
+@Throttle({ default: RATE_LIMIT_COMMENTS })
 export class CommentsController {
+  /** Creates the comments controller.
+   * @param {CommentsService} commentsService comment and reply operations
+   */
   constructor(private readonly commentsService: CommentsService) {}
 
   /**
@@ -52,11 +58,14 @@ export class CommentsController {
     return this.commentsService.findAll(incidentId, query);
   }
 
-  /** Lista respostas de um comentário principal por cursor.
+  /**
+   * Lista respostas visíveis de um comentário principal por cursor.
    * @param {string} incidentId incidente associado
    * @param {string} commentId comentário principal
-   * @param {CommentsQueryDto} query paginação
+   * @param {CommentsQueryDto} query cursor e limite da página
    * @returns {Promise<CursorPage<ReturnCommentDto>>} respostas paginadas
+   * @throws {NotFoundException} se o incidente ou comentário não for encontrado
+   * @throws {BadRequestException} se o cursor for inválido
    */
   @Get(':commentId/replies')
   findReplies(
